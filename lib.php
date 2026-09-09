@@ -448,3 +448,4 @@ function logstore_xapi_security_checks() {
         new \logstore_xapi\check\ssl_verification(),
     ];
 }
+

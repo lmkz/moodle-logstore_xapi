@@ -218,6 +218,13 @@ if ($hassiteconfig) {
         0
     ));
 
+    $settings->add(new admin_setting_configcheckbox(
+        'logstore_xapi/captureclientsideevents',
+        get_string('captureclientsideevents', 'logstore_xapi'),
+        get_string('captureclientsideevents_desc', 'logstore_xapi'),
+        0
+    ));
+
     // Notifications.
     $settings->add(new admin_setting_heading(
         'notifications',
