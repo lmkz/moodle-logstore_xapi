@@ -30,22 +30,19 @@
     }
 
     window.addEventListener('load', function() {
-        require(['jquery'], function($) {
-            if (typeof H5P !== 'undefined' && typeof H5P.externalDispatcher !== 'undefined') {
-                registerDispatcher(H5P.externalDispatcher, $);
-            } else {
-                registerIframeDispatchers($);
-            }
-        });
+        if (typeof H5P !== 'undefined' && typeof H5P.externalDispatcher !== 'undefined') {
+            registerDispatcher(H5P.externalDispatcher);
+        } else {
+            registerIframeDispatchers();
+        }
     });
 
     /**
      * Register an xAPI event listener on a dispatcher.
      *
      * @param {Object} dispatcher H5P external dispatcher.
-     * @param {Object} $ jQuery object.
      */
-    function registerDispatcher(dispatcher, $) {
+    function registerDispatcher(dispatcher) {
         if (!dispatcher || typeof dispatcher.on !== 'function') {
             return;
         }
@@ -56,16 +53,14 @@
             }
 
             var statement = validateStatement(event.data.statement);
-            send($, statement);
+            send(statement);
         });
     }
 
     /**
      * Attach listeners to H5P dispatchers found in iframes.
-     *
-     * @param {Object} $ jQuery object.
      */
-    function registerIframeDispatchers($) {
+    function registerIframeDispatchers() {
         var iframes = document.getElementsByTagName('iframe');
         for (var i = 0; i < iframes.length; i++) {
             if (iframes[i].src.indexOf('h5p') === -1) {
@@ -76,7 +71,7 @@
                 if (iframes[i].contentWindow &&
                         iframes[i].contentWindow.H5P &&
                         iframes[i].contentWindow.H5P.externalDispatcher) {
-                    registerDispatcher(iframes[i].contentWindow.H5P.externalDispatcher, $);
+                    registerDispatcher(iframes[i].contentWindow.H5P.externalDispatcher);
                 }
             } catch (ex) {
                 console.debug('logstore_xapi: unable to access iframe dispatcher', ex);
@@ -87,24 +82,28 @@
     /**
      * Send an xAPI statement to the server-side handler.
      *
-     * @param {Object} $ jQuery object.
      * @param {Object} statement xAPI statement.
      */
-    function send($, statement) {
-        $.ajax({
-            url: M.cfg.wwwroot + '/admin/tool/log/store/xapi/ajax/client_events.php',
-            type: 'POST',
-            dataType: 'json',
-            data: {
-                sesskey: M.cfg.sesskey,
-                statement: JSON.stringify(statement)
-            },
-            success: function(response) {
-                console.debug('logstore_xapi: client event received by backend', response);
-            },
-            error: function(xhr, status, error) {
-                console.error('logstore_xapi: failed to send xAPI statement', status, error);
+    function send(statement) {
+        var formData = new FormData();
+        formData.append('sesskey', M.cfg.sesskey);
+        formData.append('statement', JSON.stringify(statement));
+
+        fetch(M.cfg.wwwroot + '/admin/tool/log/store/xapi/ajax/client_events.php', {
+            method: 'POST',
+            body: formData,
+            headers: {
+                'Accept': 'application/json'
             }
+        }).then(function(response) {
+            if (!response.ok) {
+                throw new Error('HTTP ' + response.status);
+            }
+            return response.json();
+        }).then(function(data) {
+            console.debug('logstore_xapi: client event received by backend', data);
+        }).catch(function(error) {
+            console.error('logstore_xapi: failed to send xAPI statement', error);
         });
     }
 
