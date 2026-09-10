@@ -20,6 +20,9 @@ define('AJAX_SCRIPT', true);
 
 require_once(dirname(dirname(dirname(dirname(dirname(dirname(dirname(__FILE__))))))) . '/config.php');
 require_once($CFG->dirroot . '/admin/tool/log/store/xapi/lib.php');
+require_once($CFG->dirroot . '/admin/tool/log/store/xapi/src/client.php');
+
+global $DB;
 
 require_login();
 require_sesskey();
@@ -33,6 +36,10 @@ if (json_last_error() !== JSON_ERROR_NONE || !logstore_xapi_validate_client_stat
     http_response_code(400);
     echo json_encode([
         'success' => false,
+        'action' => 'rejected',
+        'queued' => false,
+        'delivered' => false,
+        'duplicate' => false,
         'message' => $error ?: 'Invalid xAPI statement',
     ]);
     die;
@@ -50,13 +57,40 @@ $result = logstore_xapi_queue_client_statement(
 
 $verbid = !empty($statement['verb']['id']) ? (string)$statement['verb']['id'] : '';
 $objectid = !empty($statement['object']['id']) ? (string)$statement['object']['id'] : '';
-error_log('logstore_xapi client event queued: userid=' . $USER->id .
-    ', verb=' . $verbid . ', object=' . $objectid . ', duplicate=' . (int)$result['duplicate']);
+$isbackground = (bool)get_config('logstore_xapi', 'backgroundmode');
+error_log('logstore_xapi client event ' . ($isbackground ? 'queued' : 'received for immediate delivery') .
+    ': userid=' . $USER->id . ', verb=' . $verbid . ', object=' . $objectid .
+    ', duplicate=' . (int)$result['duplicate']);
 
-echo json_encode([
-    'success' => true,
-    'queued' => $result['queued'],
+$action = $isbackground ? 'queued' : 'sent';
+$delivery = null;
+
+if (!$result['duplicate'] && !$isbackground) {
+    $record = $DB->get_record('logstore_xapi_client_log', ['id' => $result['id']], '*', MUST_EXIST);
+    $delivery = \logstore_xapi\client\process([$record]);
+    if ($delivery['sent'] === 1) {
+        $action = 'sent';
+    } else {
+        $action = 'failed';
+    }
+}
+
+$success = $result['duplicate'] || $isbackground || ($delivery !== null && $delivery['failed'] === 0);
+$response = [
+    'success' => $success,
+    'action' => $result['duplicate'] ? 'duplicate' : $action,
+    'queued' => !$result['duplicate'] && ($isbackground || ($delivery !== null && $delivery['failed'] > 0)),
+    'delivered' => !$result['duplicate'] && $delivery !== null && $delivery['sent'] === 1,
     'duplicate' => $result['duplicate'],
-    'message' => $result['duplicate'] ? 'Client-side xAPI statement already queued' :
-        'Client-side xAPI statement queued for processing',
-]);
+    'message' => $result['duplicate'] ? 'Client-side xAPI statement already processed or queued' :
+        ($action === 'queued' ? 'Client-side xAPI statement queued for processing' :
+        ($action === 'sent' ? 'Client-side xAPI statement sent to the LRS' :
+        'Client-side xAPI statement failed to send and was queued for retry')),
+];
+
+if ($delivery !== null && !empty($delivery['results'][0])) {
+    $response['error'] = $delivery['results'][0]['response'];
+    $response['errortype'] = $delivery['results'][0]['errortype'];
+}
+
+echo json_encode($response);

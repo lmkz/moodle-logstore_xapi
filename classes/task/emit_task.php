@@ -16,6 +16,9 @@
 
 namespace logstore_xapi\task;
 
+require_once(dirname(__DIR__, 2) . '/src/client.php');
+require_once(dirname(__DIR__, 2) . '/lib.php');
+
 use logstore_xapi\log\store;
 /**
  * Emit records to LRS.
@@ -54,5 +57,11 @@ class emit_task extends \core\task\scheduled_task {
         logstore_xapi_record_successful_events($loadedevents);
         logstore_xapi_save_sent_events($loadedevents);
         logstore_xapi_delete_processed_events($loadedevents);
+
+        $clientrecords = logstore_xapi_extract_client_events($batchsize, XAPI_IMPORT_TYPE_LIVE);
+        \\logstore_xapi\\client\\process($clientrecords);
+
+        $failedclientrecords = logstore_xapi_extract_client_events($batchsize, XAPI_IMPORT_TYPE_FAILED);
+        \\logstore_xapi\\client\\process($failedclientrecords);
     }
 }

@@ -77,13 +77,20 @@ function send_statements(array $config, array $statements, array $records): arra
  * Process a batch of client queue records.
  *
  * @param array $records Queue records.
- * @return void
+ * @return array Processing summary with per-record delivery results.
  */
-function process(array $records): void {
+function process(array $records): array {
     global $DB;
 
+    $summary = [
+        'processed' => 0,
+        'sent' => 0,
+        'failed' => 0,
+        'results' => [],
+    ];
+
     if (empty($records)) {
-        return;
+        return $summary;
     }
 
     $statements = [];
@@ -96,6 +103,14 @@ function process(array $records): void {
             $record->errortype = XAPI_REPORT_ERRORTYPE_TRANSFORM;
             $record->response = $error ?: 'Stored client statement is not valid JSON.';
             \logstore_xapi_update_client_event_failure($record);
+            $summary['processed']++;
+            $summary['failed']++;
+            $summary['results'][] = [
+                'id' => $record->id,
+                'success' => false,
+                'errortype' => XAPI_REPORT_ERRORTYPE_TRANSFORM,
+                'response' => $record->response,
+            ];
             continue;
         }
         $recordmap[] = $record;
@@ -103,19 +118,30 @@ function process(array $records): void {
     }
 
     if (empty($statements)) {
-        return;
+        return $summary;
     }
 
     $results = send_statements(get_loader_config(), $statements, $recordmap);
     foreach ($results as $index => $result) {
         $record = $recordmap[$index];
+        $summary['processed']++;
         if ($result['loaded']) {
             \logstore_xapi_add_client_event_to_sent_log($record);
             $DB->delete_records('logstore_xapi_client_log', ['id' => $record->id]);
+            $summary['sent']++;
         } else {
             $record->errortype = $result['errortype'];
             $record->response = $result['response'];
             \logstore_xapi_update_client_event_failure($record);
+            $summary['failed']++;
         }
+        $summary['results'][] = [
+            'id' => $record->id,
+            'success' => $result['loaded'],
+            'errortype' => $result['errortype'],
+            'response' => $result['response'],
+        ];
     }
+
+    return $summary;
 }

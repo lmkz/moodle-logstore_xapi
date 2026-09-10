@@ -28,15 +28,6 @@ defined('MOODLE_INTERNAL') || die();
 
 $tasks = [
     [
-        'classname' => '\logstore_xapi\task\client_emit_task',
-        'blocking' => 0,
-        'minute' => '*/1',
-        'hour' => '*',
-        'day' => '*',
-        'dayofweek' => '*',
-        'month' => '*',
-    ],
-    [
         'classname' => '\logstore_xapi\task\emit_task',
         'blocking' => 0,
         'minute' => '*/1',
