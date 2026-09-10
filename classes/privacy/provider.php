@@ -85,6 +85,7 @@ class provider implements
             self::CLIENT_TABLE,
             [
                 'statement' => 'privacy:metadata:' . self::CLIENT_TABLE . ':statement',
+                'statementid' => 'privacy:metadata:' . self::CLIENT_TABLE . ':statementid',
                 'userid' => 'privacy:metadata:' . self::CLIENT_TABLE . ':userid',
                 'contextid' => 'privacy:metadata:' . self::CLIENT_TABLE . ':contextid',
                 'courseid' => 'privacy:metadata:' . self::CLIENT_TABLE . ':courseid',
@@ -96,8 +97,9 @@ class provider implements
         $collection->add_database_table(
             self::CLIENT_SENT_TABLE,
             [
-                'userid' => 'privacy:metadata:' . self::CLIENT_TABLE . ':userid',
-                'contextid' => 'privacy:metadata:' . self::CLIENT_TABLE . ':contextid',
+                'statementid' => 'privacy:metadata:' . self::CLIENT_SENT_TABLE . ':statementid',
+                'userid' => 'privacy:metadata:' . self::CLIENT_SENT_TABLE . ':userid',
+                'contextid' => 'privacy:metadata:' . self::CLIENT_SENT_TABLE . ':contextid',
             ],
             'privacy:metadata:' . self::CLIENT_SENT_TABLE
         );
@@ -216,9 +218,18 @@ class provider implements
             if ($table === self::CLIENT_TABLE) {
                 $data[] = (object) [
                     'statement' => $record->statement,
+                    'statementid' => $record->statementid,
                     'userid' => $record->userid,
                     'contextid' => $record->contextid,
                     'courseid' => $record->courseid,
+                    'ip' => $record->ip,
+                    'timecreated' => $record->timecreated,
+                ];
+            } else if ($table === self::CLIENT_SENT_TABLE) {
+                $data[] = (object) [
+                    'statementid' => $record->statementid,
+                    'userid' => $record->userid,
+                    'contextid' => $record->contextid,
                     'timecreated' => $record->timecreated,
                 ];
             } else {

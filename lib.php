@@ -437,6 +437,21 @@ function logstore_xapi_get_type_from_table($table) {
 }
 
 /**
+ * Check whether a value looks like an absolute IRI.
+ *
+ * Mirrors the RFC 3986 scheme grammar: a letter followed by letters, digits,
+ * '+', '-' or '.', then a colon and at least one additional non-whitespace
+ * character. It does not attempt full RFC 3987 parsing.
+ *
+ * @param mixed $value Value to check.
+ * @return bool
+ */
+function logstore_xapi_is_valid_iri($value) {
+    return is_string($value) &&
+        (bool) preg_match('/^[A-Za-z][A-Za-z0-9+.-]*:[^\s]+$/', $value);
+}
+
+/**
  * Validate the subset of an xAPI statement required by the client queue.
  *
  * @param mixed $statement Decoded statement data.
@@ -457,8 +472,7 @@ function logstore_xapi_validate_client_statement($statement, &$error = null) {
     }
 
     if (empty($statement['verb']) || !is_array($statement['verb']) ||
-            empty($statement['verb']['id']) || !is_string($statement['verb']['id']) ||
-            !preg_match('/^[A-Za-z][A-Za-z0-9+.-]*:/', $statement['verb']['id'])) {
+            empty($statement['verb']['id']) || !logstore_xapi_is_valid_iri($statement['verb']['id'])) {
         $error = 'The statement verb must contain a valid IRI.';
         return false;
     }
@@ -468,10 +482,21 @@ function logstore_xapi_validate_client_statement($statement, &$error = null) {
         return false;
     }
 
-    // Activity objects have an id. Statement references and other supported
-    // xAPI object types may instead identify themselves by objectType.
-    if ((!isset($statement['object']['id']) || !is_string($statement['object']['id']) ||
-            $statement['object']['id'] === '') && empty($statement['object']['objectType'])) {
+    // Activity objects carry an IRI id. Statement references, sub-statements
+    // and other xAPI object types identify themselves by objectType and may
+    // carry a non-IRI id, so the IRI check only applies to plain activities.
+    $objecttype = $statement['object']['objectType'] ?? null;
+    if (isset($statement['object']['id'])) {
+        if (!is_string($statement['object']['id']) || $statement['object']['id'] === '') {
+            $error = 'The statement object id must be a non-empty string.';
+            return false;
+        }
+        if (($objecttype === null || $objecttype === 'Activity') &&
+                !logstore_xapi_is_valid_iri($statement['object']['id'])) {
+            $error = 'The statement object id must be a valid IRI.';
+            return false;
+        }
+    } else if ($objecttype === null) {
         $error = 'The statement object must contain an id or objectType.';
         return false;
     }

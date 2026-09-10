@@ -46,6 +46,55 @@ function get_loader_config(): array {
 }
 
 /**
+ * Build an xAPI actor for an authenticated user, mirroring the plugin's
+ * actor identification settings.
+ *
+ * @param \stdClass $user Moodle user.
+ * @param array $config Actor configuration.
+ * @return array
+ */
+function get_actor_for_user(\stdClass $user, array $config): array {
+    $actor = [];
+
+    if (!empty($config['send_name'])) {
+        $actor['name'] = \src\transformer\utils\get_full_name($user);
+    }
+
+    $hasvalidemail = filter_var($user->email ?? '', FILTER_VALIDATE_EMAIL);
+    if (!empty($config['send_mbox']) && $hasvalidemail) {
+        $actor['mbox'] = 'mailto:' . $user->email;
+        return $actor;
+    }
+
+    $homepage = !empty($config['account_homepage']) ? $config['account_homepage'] : ($config['app_url'] ?? '');
+    if (!empty($config['send_username'])) {
+        $actor['account'] = [
+            'homePage' => $homepage,
+            'name' => $user->username ?? '',
+        ];
+        return $actor;
+    }
+
+    $actor['account'] = [
+        'homePage' => $config['app_url'] ?? '',
+        'name' => (string)($user->id ?? ''),
+    ];
+    return $actor;
+}
+
+/**
+ * Acquire the client queue lock.
+ *
+ * @param string $resource Lock resource identifier.
+ * @param int $timeout Time in seconds to wait for the lock.
+ * @return \core\lock\lock|false The lock when acquired, false otherwise.
+ */
+function get_queue_lock(string $resource, int $timeout) {
+    $lockfactory = \core\lock\lock_config::get_lock_factory('logstore_xapi');
+    return $lockfactory->get_lock($resource, $timeout);
+}
+
+/**
  * Send a list of xAPI statements through the existing LRS loader.
  *
  * @param array $config Loader configuration.
@@ -96,6 +145,21 @@ function process(array $records): array {
     $statements = [];
     $recordmap = [];
     foreach ($records as $record) {
+        // A concurrent worker may have delivered this record between extraction
+        // and processing, so only act on records that are still queued. Deleted
+        // records were sent successfully elsewhere and can be counted as sent.
+        if (!$DB->record_exists('logstore_xapi_client_log', ['id' => $record->id])) {
+            $summary['processed']++;
+            $summary['sent']++;
+            $summary['results'][] = [
+                'id' => $record->id,
+                'success' => true,
+                'errortype' => 0,
+                'response' => '',
+            ];
+            continue;
+        }
+
         $statement = json_decode($record->statement, true);
         $error = null;
         if (json_last_error() !== JSON_ERROR_NONE ||
@@ -144,4 +208,48 @@ function process(array $records): array {
     }
 
     return $summary;
+}
+
+/**
+ * Process a queued batch of client statements, protected by the queue lock.
+ *
+ * The lock is held while records are extracted and delivered so that two
+ * scheduled task runs (for example on different cron hosts) cannot send the
+ * same batch twice.
+ *
+ * @param int $batchsize Maximum number of records to process.
+ * @param int $type Client queue type.
+ * @return array Processing summary with per-record delivery results.
+ */
+function process_queued(int $batchsize, int $type): array {
+    $lock = get_queue_lock('client_queue_' . ((int)$type), 5);
+    if (!$lock) {
+        return ['processed' => 0, 'sent' => 0, 'failed' => 0, 'skipped' => true, 'results' => []];
+    }
+
+    try {
+        $records = \logstore_xapi_extract_client_events($batchsize, $type);
+        return process($records);
+    } finally {
+        $lock->release();
+    }
+}
+
+/**
+ * Process given client records immediately, protected by the queue lock.
+ *
+ * @param array $records Queue records.
+ * @return array Processing summary with per-record delivery results.
+ */
+function process_records(array $records): array {
+    $lock = get_queue_lock('client_queue_' . XAPI_IMPORT_TYPE_LIVE, 5);
+    if (!$lock) {
+        return ['processed' => 0, 'sent' => 0, 'failed' => 0, 'skipped' => true, 'results' => []];
+    }
+
+    try {
+        return process($records);
+    } finally {
+        $lock->release();
+    }
 }

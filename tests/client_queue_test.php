@@ -54,6 +54,85 @@ final class client_queue_test extends \advanced_testcase {
     }
 
     /**
+     * Non-IRI verbs and activity ids are rejected, non-activity objects are not.
+     *
+     * @return void
+     */
+    public function test_validate_client_statement_rejects_invalid_iris(): void {
+        $error = null;
+
+        $badverb = $this->statement();
+        $badverb['verb']['id'] = 'completed';
+        $this->assertFalse(logstore_xapi_validate_client_statement($badverb, $error));
+        $this->assertStringContainsString('verb', $error);
+
+        $badobject = $this->statement();
+        $badobject['object']['id'] = 'activity 1';
+        $this->assertFalse(logstore_xapi_validate_client_statement($badobject, $error));
+
+        // Statement references may carry a non-IRI id.
+        $ref = $this->statement();
+        $ref['object'] = ['objectType' => 'StatementRef', 'id' => 'some-reference-id'];
+        $this->assertTrue(logstore_xapi_validate_client_statement($ref, $error));
+    }
+
+    /**
+     * Values must be IRIs with a scheme, a colon and further content.
+     *
+     * @return void
+     */
+    public function test_is_valid_iri(): void {
+        $this->assertTrue(logstore_xapi_is_valid_iri('http://adlnet.gov/expapi/verbs/completed'));
+        $this->assertTrue(logstore_xapi_is_valid_iri('mailto:learner@example.com'));
+        $this->assertTrue(logstore_xapi_is_valid_iri('HTTPS://example.test/activity/1'));
+        $this->assertFalse(logstore_xapi_is_valid_iri('not-an-iri'));
+        $this->assertFalse(logstore_xapi_is_valid_iri('http:'));
+        $this->assertFalse(logstore_xapi_is_valid_iri(''));
+        $this->assertFalse(logstore_xapi_is_valid_iri(42));
+    }
+
+    /**
+     * The actor is derived from the authenticated user.
+     *
+     * @return void
+     */
+    public function test_get_actor_for_user(): void {
+        global $CFG;
+        require_once($CFG->dirroot . '/admin/tool/log/store/xapi/src/client.php');
+
+        $user = (object) [
+            'id' => 42,
+            'username' => 'learner',
+            'email' => 'learner@example.test',
+            'firstname' => 'Test',
+            'lastname' => 'Learner',
+        ];
+        $config = [
+            'send_mbox' => false,
+            'send_name' => false,
+            'send_username' => false,
+            'account_homepage' => 'https://lms.example.test',
+            'app_url' => 'https://lms.example.test',
+        ];
+
+        $actor = \logstore_xapi\client\get_actor_for_user($user, $config);
+        $this->assertSame('https://lms.example.test', $actor['account']['homePage']);
+        $this->assertSame('42', $actor['account']['name']);
+
+        $config['send_username'] = true;
+        $actor = \logstore_xapi\client\get_actor_for_user($user, $config);
+        $this->assertSame('learner', $actor['account']['name']);
+
+        $config['send_mbox'] = true;
+        $actor = \logstore_xapi\client\get_actor_for_user($user, $config);
+        $this->assertSame('mailto:learner@example.test', $actor['mbox']);
+
+        $config['send_name'] = true;
+        $actor = \logstore_xapi\client\get_actor_for_user($user, $config);
+        $this->assertSame('Test Learner', $actor['name']);
+    }
+
+    /**
      * Statements are queued once and duplicate statement IDs are ignored.
      *
      * @return void

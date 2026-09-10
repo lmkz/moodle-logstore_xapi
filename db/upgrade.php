@@ -225,6 +225,7 @@ function create_xapi_client_table($dbman, $tablename, $sent = false) {
         $table->add_index('userid', XMLDB_INDEX_NOTUNIQUE, ['userid']);
         $table->add_index('contextid', XMLDB_INDEX_NOTUNIQUE, ['contextid']);
     } else {
+        $table->add_index('statementid', XMLDB_INDEX_NOTUNIQUE, ['statementid']);
         $table->add_index('userid', XMLDB_INDEX_NOTUNIQUE, ['userid']);
         $table->add_index('contextid', XMLDB_INDEX_NOTUNIQUE, ['contextid']);
     }

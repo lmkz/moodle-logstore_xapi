@@ -22,7 +22,7 @@ require_once(dirname(dirname(dirname(dirname(dirname(dirname(dirname(__FILE__)))
 require_once($CFG->dirroot . '/admin/tool/log/store/xapi/lib.php');
 require_once($CFG->dirroot . '/admin/tool/log/store/xapi/src/client.php');
 
-global $DB;
+global $DB, $CFG;
 
 require_login();
 require_sesskey();
@@ -45,6 +45,17 @@ if (json_last_error() !== JSON_ERROR_NONE || !logstore_xapi_validate_client_stat
     die;
 }
 
+// The actor is derived from the authenticated user and any client supplied
+// actor is discarded so statements cannot be made to impersonate other users.
+$statement['actor'] = \logstore_xapi\client\get_actor_for_user($USER, [
+    'send_mbox' => (bool)get_config('logstore_xapi', 'mbox'),
+    'send_name' => (bool)get_config('logstore_xapi', 'send_name'),
+    'send_username' => (bool)get_config('logstore_xapi', 'send_username'),
+    'account_homepage' => (string)get_config('logstore_xapi', 'account_homepage'),
+    'app_url' => $CFG->wwwroot,
+]);
+$statementjson = json_encode($statement, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
+
 $context = context_user::instance($USER->id);
 $result = logstore_xapi_queue_client_statement(
     $statement,
@@ -55,32 +66,44 @@ $result = logstore_xapi_queue_client_statement(
     getremoteaddr()
 );
 
-$verbid = !empty($statement['verb']['id']) ? (string)$statement['verb']['id'] : '';
-$objectid = !empty($statement['object']['id']) ? (string)$statement['object']['id'] : '';
 $isbackground = (bool)get_config('logstore_xapi', 'backgroundmode');
-error_log('logstore_xapi client event ' . ($isbackground ? 'queued' : 'received for immediate delivery') .
-    ': userid=' . $USER->id . ', verb=' . $verbid . ', object=' . $objectid .
-    ', duplicate=' . (int)$result['duplicate']);
 
-$action = $isbackground ? 'queued' : 'sent';
+$action = $isbackground ? 'queued' : 'send';
 $delivery = null;
 
 if (!$result['duplicate'] && !$isbackground) {
-    $record = $DB->get_record('logstore_xapi_client_log', ['id' => $result['id']], '*', MUST_EXIST);
-    $delivery = \logstore_xapi\client\process([$record]);
-    if ($delivery['sent'] === 1) {
+    $record = $DB->get_record('logstore_xapi_client_log', ['id' => $result['id']]);
+    if ($record === false) {
+        // The scheduled task already delivered the statement concurrently.
+        $delivery = [
+            'processed' => 1,
+            'sent' => 1,
+            'failed' => 0,
+            'skipped' => false,
+            'results' => [['id' => $result['id'], 'success' => true, 'errortype' => 0, 'response' => '']],
+        ];
+    } else {
+        $delivery = \logstore_xapi\client\process_records([$record]);
+    }
+}
+
+if ($delivery !== null) {
+    if (!empty($delivery['skipped'])) {
+        $action = 'queued';
+    } else if ($delivery['sent'] === 1) {
         $action = 'sent';
     } else {
         $action = 'failed';
     }
 }
 
-$success = $result['duplicate'] || $isbackground || ($delivery !== null && $delivery['failed'] === 0);
+$success = $result['duplicate'] || $isbackground ||
+    ($delivery !== null && (empty($delivery['skipped']) && $delivery['failed'] === 0));
 $response = [
     'success' => $success,
     'action' => $result['duplicate'] ? 'duplicate' : $action,
-    'queued' => !$result['duplicate'] && ($isbackground || ($delivery !== null && $delivery['failed'] > 0)),
-    'delivered' => !$result['duplicate'] && $delivery !== null && $delivery['sent'] === 1,
+    'queued' => !$result['duplicate'] && ($isbackground || $action === 'queued' || $action === 'failed'),
+    'delivered' => !$result['duplicate'] && $action === 'sent',
     'duplicate' => $result['duplicate'],
     'message' => $result['duplicate'] ? 'Client-side xAPI statement already processed or queued' :
         ($action === 'queued' ? 'Client-side xAPI statement queued for processing' :
@@ -88,7 +111,7 @@ $response = [
         'Client-side xAPI statement failed to send and was queued for retry')),
 ];
 
-if ($delivery !== null && !empty($delivery['results'][0])) {
+if ($delivery !== null && $action === 'failed' && !empty($delivery['results'][0])) {
     $response['error'] = $delivery['results'][0]['response'];
     $response['errortype'] = $delivery['results'][0]['errortype'];
 }
