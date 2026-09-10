@@ -38,156 +38,157 @@
             }
         });
     });
-})();
 
-/**
- * Register an xAPI event listener on a dispatcher.
- *
- * @param {Object} dispatcher H5P external dispatcher.
- * @param {Object} $ jQuery object.
- */
-function registerDispatcher(dispatcher, $) {
-    if (!dispatcher || typeof dispatcher.on !== 'function') {
-        return;
-    }
-
-    dispatcher.on('xAPI', function(event) {
-        if (!event || !event.data || !event.data.statement) {
+    /**
+     * Register an xAPI event listener on a dispatcher.
+     *
+     * @param {Object} dispatcher H5P external dispatcher.
+     * @param {Object} $ jQuery object.
+     */
+    function registerDispatcher(dispatcher, $) {
+        if (!dispatcher || typeof dispatcher.on !== 'function') {
             return;
         }
 
-        var statement = validateStatement(event.data.statement);
-        send($, statement);
-    });
-}
-
-/**
- * Attach listeners to H5P dispatchers found in iframes.
- *
- * @param {Object} $ jQuery object.
- */
-function registerIframeDispatchers($) {
-    var iframes = document.getElementsByTagName('iframe');
-    for (var i = 0; i < iframes.length; i++) {
-        if (iframes[i].src.indexOf('h5p') === -1) {
-            continue;
-        }
-
-        try {
-            if (iframes[i].contentWindow &&
-                    iframes[i].contentWindow.H5P &&
-                    iframes[i].contentWindow.H5P.externalDispatcher) {
-                registerDispatcher(iframes[i].contentWindow.H5P.externalDispatcher, $);
+        dispatcher.on('xAPI', function(event) {
+            if (!event || !event.data || !event.data.statement) {
+                return;
             }
-        } catch (ex) {
-            console.debug('logstore_xapi: unable to access iframe dispatcher', ex);
+
+            var statement = validateStatement(event.data.statement);
+            send($, statement);
+        });
+    }
+
+    /**
+     * Attach listeners to H5P dispatchers found in iframes.
+     *
+     * @param {Object} $ jQuery object.
+     */
+    function registerIframeDispatchers($) {
+        var iframes = document.getElementsByTagName('iframe');
+        for (var i = 0; i < iframes.length; i++) {
+            if (iframes[i].src.indexOf('h5p') === -1) {
+                continue;
+            }
+
+            try {
+                if (iframes[i].contentWindow &&
+                        iframes[i].contentWindow.H5P &&
+                        iframes[i].contentWindow.H5P.externalDispatcher) {
+                    registerDispatcher(iframes[i].contentWindow.H5P.externalDispatcher, $);
+                }
+            } catch (ex) {
+                console.debug('logstore_xapi: unable to access iframe dispatcher', ex);
+            }
         }
     }
-}
 
-/**
- * Send an xAPI statement to the server-side handler.
- *
- * @param {Object} $ jQuery object.
- * @param {Object} statement xAPI statement.
- */
-function send($, statement) {
-    $.ajax({
-        url: M.cfg.wwwroot + '/admin/tool/log/store/xapi/ajax/client_events.php',
-        type: 'POST',
-        dataType: 'json',
-        data: {
-            sesskey: M.cfg.sesskey,
-            statement: JSON.stringify(statement)
-        },
-        success: function(response) {
-            console.debug('logstore_xapi: client event received by backend', response);
-        },
-        error: function(xhr, status, error) {
-            console.error('logstore_xapi: failed to send xAPI statement', status, error);
-        }
-    });
-}
-
-/**
- * Validate and enrich an xAPI statement.
- *
- * @param {Object} statement xAPI statement.
- * @returns {Object} validated statement.
- */
-function validateStatement(statement) {
-    statement = addCourseId(statement);
-    statement = validateActivityId(statement);
-    statement = validateChoiceIds(statement);
-    statement = addTimestamp(statement);
-    return statement;
-}
-
-/**
- * Add course grouping context to the statement where available.
- *
- * @param {Object} statement xAPI statement.
- * @returns {Object} modified statement.
- */
-function addCourseId(statement) {
-    if (!statement.context) {
-        statement.context = {};
-    }
-
-    var courseId = M.cfg.courseId;
-    if (courseId) {
-        statement.context.contextActivities = statement.context.contextActivities || {};
-        statement.context.contextActivities.grouping = [{
-            id: M.cfg.wwwroot + '/course/view.php?id=' + courseId
-        }];
-    }
-
-    return statement;
-}
-
-/**
- * Ensure object.id is current page URL.
- *
- * @param {Object} statement xAPI statement.
- * @returns {Object} modified statement.
- */
-function validateActivityId(statement) {
-    if (!statement.object) {
-        statement.object = {};
-    }
-
-    if (statement.object.id !== window.location.href) {
-        statement.object.id = window.location.href;
-    }
-
-    return statement;
-}
-
-/**
- * Ensure choice ids are strings.
- *
- * @param {Object} statement xAPI statement.
- * @returns {Object} modified statement.
- */
-function validateChoiceIds(statement) {
-    if (statement.object && statement.object.definition && statement.object.definition.choices) {
-        statement.object.definition.choices.forEach(function(choice) {
-            if (typeof choice.id !== 'string') {
-                choice.id = choice.id.toString();
+    /**
+     * Send an xAPI statement to the server-side handler.
+     *
+     * @param {Object} $ jQuery object.
+     * @param {Object} statement xAPI statement.
+     */
+    function send($, statement) {
+        $.ajax({
+            url: M.cfg.wwwroot + '/admin/tool/log/store/xapi/ajax/client_events.php',
+            type: 'POST',
+            dataType: 'json',
+            data: {
+                sesskey: M.cfg.sesskey,
+                statement: JSON.stringify(statement)
+            },
+            success: function(response) {
+                console.debug('logstore_xapi: client event received by backend', response);
+            },
+            error: function(xhr, status, error) {
+                console.error('logstore_xapi: failed to send xAPI statement', status, error);
             }
         });
     }
 
-    return statement;
-}
+    /**
+     * Validate and enrich an xAPI statement.
+     *
+     * @param {Object} statement xAPI statement.
+     * @returns {Object} validated statement.
+     */
+    function validateStatement(statement) {
+        statement = addCourseId(statement);
+        statement = validateActivityId(statement);
+        statement = validateChoiceIds(statement);
+        statement = addTimestamp(statement);
+        return statement;
+    }
 
-/**
- * Add an ISO timestamp to the statement.
- *
- * @param {Object} statement xAPI statement.
- * @returns {Object} modified statement.
- */
-function addTimestamp(statement) {
-    statement.timestamp = new Date().toISOString();
-    return statement;
-}
+    /**
+     * Add course grouping context to the statement where available.
+     *
+     * @param {Object} statement xAPI statement.
+     * @returns {Object} modified statement.
+     */
+    function addCourseId(statement) {
+        if (!statement.context) {
+            statement.context = {};
+        }
+
+        var courseId = M.cfg.courseId;
+        if (courseId) {
+            statement.context.contextActivities = statement.context.contextActivities || {};
+            statement.context.contextActivities.grouping = [{
+                id: M.cfg.wwwroot + '/course/view.php?id=' + courseId
+            }];
+        }
+
+        return statement;
+    }
+
+    /**
+     * Ensure object.id is current page URL.
+     *
+     * @param {Object} statement xAPI statement.
+     * @returns {Object} modified statement.
+     */
+    function validateActivityId(statement) {
+        if (!statement.object) {
+            statement.object = {};
+        }
+
+        if (statement.object.id !== window.location.href) {
+            statement.object.id = window.location.href;
+        }
+
+        return statement;
+    }
+
+    /**
+     * Ensure choice ids are strings.
+     *
+     * @param {Object} statement xAPI statement.
+     * @returns {Object} modified statement.
+     */
+    function validateChoiceIds(statement) {
+        if (statement.object && statement.object.definition && statement.object.definition.choices) {
+            statement.object.definition.choices.forEach(function(choice) {
+                if (typeof choice.id !== 'string') {
+                    choice.id = choice.id.toString();
+                }
+            });
+        }
+
+        return statement;
+    }
+
+    /**
+     * Add an ISO timestamp to the statement.
+     *
+     * @param {Object} statement xAPI statement.
+     * @returns {Object} modified statement.
+     */
+    function addTimestamp(statement) {
+        statement.timestamp = new Date().toISOString();
+        return statement;
+    }
+
+})();

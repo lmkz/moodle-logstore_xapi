@@ -187,6 +187,55 @@ function create_xapi_notification_table($dbman, $tablename) {
 }
 
  /**
+  * Create a client statement table.
+  *
+  * @param object $dbman Database manipulation object.
+  * @param string $tablename Table name.
+  * @param bool $sent Whether this is the sent idempotency table.
+  * @return void
+  */
+function create_xapi_client_table($dbman, $tablename, $sent = false) {
+    $table = new xmldb_table($tablename);
+    $table->add_field('id', XMLDB_TYPE_INTEGER, '10', null, XMLDB_NOTNULL, XMLDB_SEQUENCE, null);
+    $table->add_field('clientkey', XMLDB_TYPE_CHAR, '64', null, XMLDB_NOTNULL, null, null);
+
+    if ($sent) {
+        $table->add_field('statementid', XMLDB_TYPE_CHAR, '255', null, null, null, null);
+        $table->add_field('userid', XMLDB_TYPE_INTEGER, '10', null, XMLDB_NOTNULL, null, null);
+        $table->add_field('contextid', XMLDB_TYPE_INTEGER, '10', null, XMLDB_NOTNULL, null, null);
+        $table->add_field('timecreated', XMLDB_TYPE_INTEGER, '10', null, XMLDB_NOTNULL, null, null);
+    } else {
+        $table->add_field('statement', XMLDB_TYPE_TEXT, null, null, XMLDB_NOTNULL, null, null);
+        $table->add_field('statementid', XMLDB_TYPE_CHAR, '255', null, null, null, null);
+        $table->add_field('userid', XMLDB_TYPE_INTEGER, '10', null, XMLDB_NOTNULL, null, null);
+        $table->add_field('contextid', XMLDB_TYPE_INTEGER, '10', null, XMLDB_NOTNULL, null, null);
+        $table->add_field('courseid', XMLDB_TYPE_INTEGER, '10', null, null, null, null);
+        $table->add_field('timecreated', XMLDB_TYPE_INTEGER, '10', null, XMLDB_NOTNULL, null, null);
+        $table->add_field('ip', XMLDB_TYPE_CHAR, '45', null, null, null, null);
+        $table->add_field('type', XMLDB_TYPE_INTEGER, '10', null, XMLDB_NOTNULL, null, 0);
+        $table->add_field('attempts', XMLDB_TYPE_INTEGER, '10', null, XMLDB_NOTNULL, null, 0);
+        $table->add_field('errortype', XMLDB_TYPE_INTEGER, '10', null, null, null, null);
+        $table->add_field('response', XMLDB_TYPE_TEXT, null, null, null, null, null);
+    }
+
+    $table->add_key('primary', XMLDB_KEY_PRIMARY, ['id']);
+    $table->add_index('clientkey', XMLDB_INDEX_UNIQUE, ['clientkey']);
+    if (!$sent) {
+        $table->add_index('type', XMLDB_INDEX_NOTUNIQUE, ['type']);
+        $table->add_index('userid', XMLDB_INDEX_NOTUNIQUE, ['userid']);
+        $table->add_index('contextid', XMLDB_INDEX_NOTUNIQUE, ['contextid']);
+    } else {
+        $table->add_index('userid', XMLDB_INDEX_NOTUNIQUE, ['userid']);
+        $table->add_index('contextid', XMLDB_INDEX_NOTUNIQUE, ['contextid']);
+    }
+    $table->add_index('timecreated', XMLDB_INDEX_NOTUNIQUE, ['timecreated']);
+
+    if (!$dbman->table_exists($table)) {
+        $dbman->create_table($table);
+    }
+}
+
+ /**
   * Determine what needs to be done for each upgrade step.
   *
   * @param string $oldversion Prior version of plugin during an upgrade.
@@ -244,6 +293,12 @@ function xmldb_logstore_xapi_upgrade($oldversion) {
 
         // The xAPI savepoint reached.
         upgrade_plugin_savepoint(true, 2020050600, 'logstore', 'xapi');
+    }
+
+    if ($oldversion < 2026072002) {
+        create_xapi_client_table($dbman, 'logstore_xapi_client_log');
+        create_xapi_client_table($dbman, 'logstore_xapi_client_sent', true);
+        upgrade_plugin_savepoint(true, 2026072002, 'logstore', 'xapi');
     }
 
     return true;

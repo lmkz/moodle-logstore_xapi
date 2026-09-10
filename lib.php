@@ -437,6 +437,161 @@ function logstore_xapi_get_type_from_table($table) {
 }
 
 /**
+ * Validate the subset of an xAPI statement required by the client queue.
+ *
+ * @param mixed $statement Decoded statement data.
+ * @param string|null $error Set to a validation error when invalid.
+ * @return bool
+ */
+function logstore_xapi_validate_client_statement($statement, &$error = null) {
+    $error = null;
+
+    if (!is_array($statement)) {
+        $error = 'The statement must be a JSON object.';
+        return false;
+    }
+
+    if (empty($statement['actor']) || !is_array($statement['actor'])) {
+        $error = 'The statement actor is required.';
+        return false;
+    }
+
+    if (empty($statement['verb']) || !is_array($statement['verb']) ||
+            empty($statement['verb']['id']) || !is_string($statement['verb']['id']) ||
+            !preg_match('/^[A-Za-z][A-Za-z0-9+.-]*:/', $statement['verb']['id'])) {
+        $error = 'The statement verb must contain a valid IRI.';
+        return false;
+    }
+
+    if (empty($statement['object']) || !is_array($statement['object'])) {
+        $error = 'The statement object is required.';
+        return false;
+    }
+
+    // Activity objects have an id. Statement references and other supported
+    // xAPI object types may instead identify themselves by objectType.
+    if ((!isset($statement['object']['id']) || !is_string($statement['object']['id']) ||
+            $statement['object']['id'] === '') && empty($statement['object']['objectType'])) {
+        $error = 'The statement object must contain an id or objectType.';
+        return false;
+    }
+
+    if (isset($statement['id']) && (!is_string($statement['id']) || $statement['id'] === '')) {
+        $error = 'The statement id must be a non-empty string.';
+        return false;
+    }
+
+    return true;
+}
+
+/**
+ * Queue a client-side xAPI statement unless it has already been queued or sent.
+ *
+ * @param array $statement Decoded xAPI statement.
+ * @param string $statementjson Original JSON representation.
+ * @param int $userid Authenticated Moodle user id.
+ * @param int $contextid Moodle context id.
+ * @param int|null $courseid Optional course id.
+ * @param string|null $ip Request IP address.
+ * @return array Queue result.
+ */
+function logstore_xapi_queue_client_statement(array $statement, $statementjson, $userid, $contextid,
+        $courseid = null, $ip = null) {
+    global $DB;
+
+    $statementid = isset($statement['id']) ? (string)$statement['id'] : null;
+    $clientkey = hash('sha256', $statementid !== null ? 'id:' . $statementid : 'json:' . $statementjson);
+
+    if ($DB->record_exists('logstore_xapi_client_log', ['clientkey' => $clientkey]) ||
+            $DB->record_exists('logstore_xapi_client_sent', ['clientkey' => $clientkey])) {
+        return ['queued' => false, 'duplicate' => true, 'id' => 0];
+    }
+
+    $record = (object) [
+        'statement' => $statementjson,
+        'clientkey' => $clientkey,
+        'statementid' => $statementid,
+        'userid' => (int)$userid,
+        'contextid' => (int)$contextid,
+        'courseid' => $courseid === null ? null : (int)$courseid,
+        'timecreated' => time(),
+        'ip' => $ip,
+        'type' => XAPI_IMPORT_TYPE_LIVE,
+        'attempts' => 0,
+    ];
+
+    try {
+        $id = $DB->insert_record('logstore_xapi_client_log', $record);
+    } catch (\dml_exception $exception) {
+        // The unique client key also protects against two concurrent browser
+        // requests for the same statement.
+        if ($DB->record_exists('logstore_xapi_client_log', ['clientkey' => $clientkey]) ||
+                $DB->record_exists('logstore_xapi_client_sent', ['clientkey' => $clientkey])) {
+            return ['queued' => false, 'duplicate' => true, 'id' => 0];
+        }
+        throw $exception;
+    }
+
+    return [
+        'queued' => true,
+        'duplicate' => false,
+        'id' => $id,
+    ];
+}
+
+/**
+ * Extract client statements awaiting processing.
+ *
+ * @param int $limitnum Maximum number of records.
+ * @param int $type Client queue type.
+ * @return array
+ */
+function logstore_xapi_extract_client_events($limitnum, $type) {
+    global $DB;
+
+    return $DB->get_records('logstore_xapi_client_log', ['type' => $type], 'id ASC', '*', 0, $limitnum);
+}
+
+/**
+ * Add a successfully sent client statement to the idempotency log.
+ *
+ * @param stdClass $event Client queue record.
+ * @return void
+ */
+function logstore_xapi_add_client_event_to_sent_log($event) {
+    global $DB;
+
+    if (!$DB->record_exists('logstore_xapi_client_sent', ['clientkey' => $event->clientkey])) {
+        $DB->insert_record('logstore_xapi_client_sent', (object) [
+            'clientkey' => $event->clientkey,
+            'statementid' => $event->statementid,
+            'userid' => $event->userid,
+            'contextid' => $event->contextid,
+            'timecreated' => time(),
+        ]);
+    }
+}
+
+/**
+ * Mark a client statement as failed so the failed queue task can retry it.
+ *
+ * @param stdClass $event Client queue record with error information.
+ * @return void
+ */
+function logstore_xapi_update_client_event_failure($event) {
+    global $DB;
+
+    $record = (object) [
+        'id' => $event->id,
+        'type' => XAPI_IMPORT_TYPE_FAILED,
+        'attempts' => ((int)($event->attempts ?? 0)) + 1,
+        'errortype' => $event->errortype ?? XAPI_REPORT_ERRORTYPE_LRS,
+        'response' => $event->response ?? '',
+    ];
+    $DB->update_record('logstore_xapi_client_log', $record);
+}
+
+/**
  * Security checks contributed to the site security report.
  *
  * Called by \core\check\manager::get_security_checks().

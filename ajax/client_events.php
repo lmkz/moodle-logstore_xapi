@@ -5,17 +5,9 @@
 // it under the terms of the GNU General Public License as published by
 // the Free Software Foundation, either version 3 of the License, or
 // (at your option) any later version.
-//
-// Moodle is distributed in the hope that it will be useful,
-// but WITHOUT ANY WARRANTY; without even the implied warranty of
-// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-// GNU General Public License for more details.
-//
-// You should have received a copy of the GNU General Public License
-// along with Moodle.  If not, see <http://www.gnu.org/licenses/>.
 
 /**
- * AJAX endpoint: receives client-side xAPI events.
+ * AJAX endpoint: receives and queues client-side xAPI events.
  *
  * @package   logstore_xapi
  * @copyright Jerret Fowler <jerrett.fowler@gmail.com>
@@ -27,39 +19,44 @@
 define('AJAX_SCRIPT', true);
 
 require_once(dirname(dirname(dirname(dirname(dirname(dirname(dirname(__FILE__))))))) . '/config.php');
+require_once($CFG->dirroot . '/admin/tool/log/store/xapi/lib.php');
 
 require_login();
 require_sesskey();
 
+header('Content-Type: application/json');
+
 $statementjson = required_param('statement', PARAM_RAW);
 $statement = json_decode($statementjson, true);
 
-if (!is_array($statement) ||
-        !array_key_exists('actor', $statement) ||
-        !array_key_exists('verb', $statement) ||
-        !array_key_exists('object', $statement)) {
+if (json_last_error() !== JSON_ERROR_NONE || !logstore_xapi_validate_client_statement($statement, $error)) {
     http_response_code(400);
     echo json_encode([
         'success' => false,
-        'message' => 'Invalid xAPI statement',
+        'message' => $error ?: 'Invalid xAPI statement',
     ]);
     die;
 }
 
-$verbid = '';
-if (!empty($statement['verb']) && is_array($statement['verb']) && !empty($statement['verb']['id'])) {
-    $verbid = (string)$statement['verb']['id'];
-}
+$context = context_user::instance($USER->id);
+$result = logstore_xapi_queue_client_statement(
+    $statement,
+    $statementjson,
+    $USER->id,
+    $context->id,
+    null,
+    getremoteaddr()
+);
 
-$objectid = '';
-if (!empty($statement['object']) && is_array($statement['object']) && !empty($statement['object']['id'])) {
-    $objectid = (string)$statement['object']['id'];
-}
-
-error_log('logstore_xapi client event arrived: userid=' . $USER->id .
-    ', verb=' . $verbid . ', object=' . $objectid);
+$verbid = !empty($statement['verb']['id']) ? (string)$statement['verb']['id'] : '';
+$objectid = !empty($statement['object']['id']) ? (string)$statement['object']['id'] : '';
+error_log('logstore_xapi client event queued: userid=' . $USER->id .
+    ', verb=' . $verbid . ', object=' . $objectid . ', duplicate=' . (int)$result['duplicate']);
 
 echo json_encode([
     'success' => true,
-    'message' => 'Client-side xAPI statement received',
+    'queued' => $result['queued'],
+    'duplicate' => $result['duplicate'],
+    'message' => $result['duplicate'] ? 'Client-side xAPI statement already queued' :
+        'Client-side xAPI statement queued for processing',
 ]);

@@ -1,0 +1,52 @@
+<?php
+// This file is part of Moodle - http://moodle.org/
+//
+// Moodle is free software: you can redistribute it and/or modify
+// it under the terms of the GNU General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+
+namespace logstore_xapi\task;
+
+defined('MOODLE_INTERNAL') || die();
+
+require_once(dirname(__DIR__, 2) . '/src/client.php');
+require_once(dirname(__DIR__, 2) . '/lib.php');
+
+/**
+ * Emit queued client-side statements to the LRS.
+ *
+ * @package   logstore_xapi
+ * @copyright 2026 David Pesce <david.pesce@exputo.com>
+ * @license   https://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
+ */
+class client_emit_task extends \core\task\scheduled_task {
+    /**
+     * Get a descriptive task name.
+     *
+     * @return string
+     */
+    public function get_name() {
+        return get_string('taskclientemit', 'logstore_xapi');
+    }
+
+    /**
+     * Process one client statement batch.
+     *
+     * @return void
+     */
+    public function execute() {
+        $batchsize = (int)get_config('logstore_xapi', 'maxbatchsize');
+        if ($batchsize <= 0) {
+            $batchsize = 30;
+        }
+
+        $records = logstore_xapi_extract_client_events($batchsize, XAPI_IMPORT_TYPE_LIVE);
+        \logstore_xapi\client\process($records);
+
+        // Failed records are retried by the same task. This keeps the minimal
+        // implementation from requiring a second queue or failed-task class.
+        $failedrecords = logstore_xapi_extract_client_events($batchsize, XAPI_IMPORT_TYPE_FAILED);
+        \logstore_xapi\client\process($failedrecords);
+    }
+}
