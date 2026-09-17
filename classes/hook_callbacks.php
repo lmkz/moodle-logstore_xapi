@@ -45,6 +45,16 @@ class hook_callbacks {
             return;
         }
 
+        require_once(dirname(__DIR__) . '/src/client.php');
+
         $PAGE->requires->js('/admin/tool/log/store/xapi/sender.js');
+        $filterconfig = [
+            'enabledVerbs' => \logstore_xapi\client\get_enabled_client_verb_ids(),
+            'knownVerbs' => array_values(\logstore_xapi\client\get_client_verb_map()),
+            'allowUnknown' => \logstore_xapi\client\get_clientverbs_allow_unknown(),
+        ];
+        $PAGE->requires->js_init_code(
+            'window.logstoreXapiClientVerbs = ' . json_encode($filterconfig) . ';'
+        );
     }
 }

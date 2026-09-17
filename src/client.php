@@ -46,6 +46,133 @@ function get_loader_config(): array {
 }
 
 /**
+ * Canonical client-side (H5P) xAPI verbs.
+ *
+ * Keys are short names, values are full ADL verb IRIs. Mirrors
+ * H5P.XAPIEvent.allowedXAPIVerbs.
+ *
+ * @return array Short name => full verb IRI.
+ */
+function get_client_verb_map(): array {
+    $base = 'http://adlnet.gov/expapi/verbs/';
+    $shorts = [
+        'answered',
+        'asked',
+        'attempted',
+        'attended',
+        'commented',
+        'completed',
+        'exited',
+        'experienced',
+        'failed',
+        'imported',
+        'initialized',
+        'interacted',
+        'launched',
+        'mastered',
+        'passed',
+        'preferred',
+        'progressed',
+        'registered',
+        'responded',
+        'resumed',
+        'scored',
+        'shared',
+        'suspended',
+        'terminated',
+        'voided',
+        'downloaded',
+        'copied',
+        'accessed-reuse',
+        'accessed-embed',
+        'accessed-copyright',
+    ];
+    $map = [];
+    foreach ($shorts as $short) {
+        $map[$short] = $base . $short;
+    }
+    return $map;
+}
+
+/**
+ * Get the short names of enabled client verbs.
+ *
+ * A `false` config (never saved) means all verbs enabled for backwards
+ * compatibility. An empty string means all disabled.
+ *
+ * @return array Enabled short names.
+ */
+function get_enabled_client_verbs(): array {
+    $map = get_client_verb_map();
+    $raw = get_config('logstore_xapi', 'clientverbs');
+    if ($raw === false) {
+        return array_keys($map);
+    }
+    if (is_array($raw)) {
+        $selected = array_keys(array_filter($raw));
+    } else {
+        $raw = trim((string)$raw);
+        if ($raw === '') {
+            return [];
+        }
+        $selected = array_map('trim', explode(',', $raw));
+    }
+    return array_values(array_intersect($selected, array_keys($map)));
+}
+
+/**
+ * Get the full IRIs of enabled client verbs, for browser pre-filtering.
+ *
+ * @return array Enabled verb IRIs.
+ */
+function get_enabled_client_verb_ids(): array {
+    $map = get_client_verb_map();
+    $enabled = get_enabled_client_verbs();
+    $ids = [];
+    foreach ($enabled as $short) {
+        if (isset($map[$short])) {
+            $ids[] = $map[$short];
+        }
+    }
+    return $ids;
+}
+
+/**
+ * Whether statements with unknown (non-H5P-list) verbs should be allowed.
+ *
+ * Separate setting so custom verbs fail open by default without forcing
+ * admins to enumerate them.
+ *
+ * @return bool
+ */
+function get_clientverbs_allow_unknown(): bool {
+    $val = get_config('logstore_xapi', 'clientverbs_allow_unknown');
+    if ($val === false) {
+        return true;
+    }
+    return (bool)$val;
+}
+
+/**
+ * Check whether a client verb IRI is enabled.
+ *
+ * @param string $verbid Full verb IRI from the statement.
+ * @return bool
+ */
+function is_client_verb_enabled($verbid): bool {
+    $verbid = trim((string)$verbid);
+    if ($verbid === '') {
+        return false;
+    }
+    $map = get_client_verb_map();
+    $flipped = array_flip($map);
+    if (isset($flipped[$verbid])) {
+        return in_array($flipped[$verbid], get_enabled_client_verbs(), true);
+    }
+    return get_clientverbs_allow_unknown();
+}
+
+/**
  * Build an xAPI actor for an authenticated user, mirroring the plugin's
  * actor identification settings.
  *
@@ -135,6 +262,7 @@ function process(array $records): array {
         'processed' => 0,
         'sent' => 0,
         'failed' => 0,
+        'filtered' => 0,
         'results' => [],
     ];
 
@@ -174,6 +302,21 @@ function process(array $records): array {
                 'success' => false,
                 'errortype' => XAPI_REPORT_ERRORTYPE_TRANSFORM,
                 'response' => $record->response,
+            ];
+            continue;
+        }
+        if (!is_client_verb_enabled($statement['verb']['id'] ?? '')) {
+            // Verb disabled after the statement was queued: drop silently
+            // without sending to the LRS.
+            $DB->delete_records('logstore_xapi_client_log', ['id' => $record->id]);
+            $summary['processed']++;
+            $summary['filtered']++;
+            $summary['results'][] = [
+                'id' => $record->id,
+                'success' => true,
+                'filtered' => true,
+                'errortype' => 0,
+                'response' => '',
             ];
             continue;
         }
@@ -224,7 +367,8 @@ function process(array $records): array {
 function process_queued(int $batchsize, int $type): array {
     $lock = get_queue_lock('client_queue_' . ((int)$type), 5);
     if (!$lock) {
-        return ['processed' => 0, 'sent' => 0, 'failed' => 0, 'skipped' => true, 'results' => []];
+        return ['processed' => 0, 'sent' => 0, 'failed' => 0, 'filtered' => 0, 'skipped' => true,
+            'results' => []];
     }
 
     try {
@@ -244,7 +388,8 @@ function process_queued(int $batchsize, int $type): array {
 function process_records(array $records): array {
     $lock = get_queue_lock('client_queue_' . XAPI_IMPORT_TYPE_LIVE, 5);
     if (!$lock) {
-        return ['processed' => 0, 'sent' => 0, 'failed' => 0, 'skipped' => true, 'results' => []];
+        return ['processed' => 0, 'sent' => 0, 'failed' => 0, 'filtered' => 0, 'skipped' => true,
+            'results' => []];
     }
 
     try {

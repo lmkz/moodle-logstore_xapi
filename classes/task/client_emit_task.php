@@ -43,12 +43,12 @@ class client_emit_task extends \core\task\scheduled_task {
 
         $live = \logstore_xapi\client\process_queued($batchsize, XAPI_IMPORT_TYPE_LIVE);
         mtrace('logstore_xapi client_emit_task: ' . $live['sent'] . ' sent, ' .
-            $live['failed'] . ' failed from live queue.');
+            $live['failed'] . ' failed, ' . ($live['filtered'] ?? 0) . ' filtered from live queue.');
 
         // Failed records are retried by the same task. This keeps the minimal
         // implementation from requiring a second queue or failed-task class.
         $failed = \logstore_xapi\client\process_queued($batchsize, XAPI_IMPORT_TYPE_FAILED);
         mtrace('logstore_xapi client_emit_task: ' . $failed['sent'] . ' sent, ' .
-            $failed['failed'] . ' failed from retry queue.');
+            $failed['failed'] . ' failed, ' . ($failed['filtered'] ?? 0) . ' filtered from retry queue.');
     }
 }

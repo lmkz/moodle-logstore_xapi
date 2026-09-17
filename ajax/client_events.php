@@ -45,6 +45,18 @@ if (json_last_error() !== JSON_ERROR_NONE || !logstore_xapi_validate_client_stat
     die;
 }
 
+if (!\logstore_xapi\client\is_client_verb_enabled($statement['verb']['id'] ?? '')) {
+    echo json_encode([
+        'success' => true,
+        'action' => 'filtered',
+        'queued' => false,
+        'delivered' => false,
+        'duplicate' => false,
+        'message' => 'Client-side xAPI statement filtered by verb settings',
+    ]);
+    die;
+}
+
 // The actor is derived from the authenticated user and any client supplied
 // actor is discarded so statements cannot be made to impersonate other users.
 $statement['actor'] = \logstore_xapi\client\get_actor_for_user($USER, [

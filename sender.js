@@ -52,6 +52,12 @@
                 return;
             }
 
+            if (!isVerbAllowed(event.data.statement.verb && event.data.statement.verb.id)) {
+                console.debug('logstore_xapi: client event filtered by verb settings',
+                    event.data.statement.verb && event.data.statement.verb.id);
+                return;
+            }
+
             var statement = validateStatement(event.data.statement);
             send(statement);
         });
@@ -105,6 +111,33 @@
         }).catch(function(error) {
             console.error('logstore_xapi: failed to send xAPI statement', error);
         });
+    }
+
+    /**
+     * Check whether a verb IRI is enabled by server-side settings.
+     *
+     * Fail-open when no config was injected (e.g. cached pages) so
+     * statements are still delivered and filtered authoritatively by
+     * ajax/client_events.php.
+     *
+     * @param {String} verbId Full verb IRI.
+     * @returns {Boolean} true when the statement should be sent.
+     */
+    function isVerbAllowed(verbId) {
+        var config = window.logstoreXapiClientVerbs;
+        if (!config || !config.enabledVerbs) {
+            return true;
+        }
+        if (!verbId) {
+            return true;
+        }
+        if (config.enabledVerbs.indexOf(verbId) !== -1) {
+            return true;
+        }
+        if (config.knownVerbs && config.knownVerbs.indexOf(verbId) !== -1) {
+            return false;
+        }
+        return !!config.allowUnknown;
     }
 
     /**

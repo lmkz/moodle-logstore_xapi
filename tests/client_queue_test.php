@@ -181,4 +181,118 @@ final class client_queue_test extends \advanced_testcase {
         $this->assertSame(1, (int)$updated->attempts);
         $this->assertSame('test failure', $updated->response);
     }
+
+    /**
+     * Verb map contains the H5P verbs and all are enabled by default.
+     *
+     * @return void
+     */
+    public function test_client_verb_map_defaults_to_all_enabled(): void {
+        global $CFG;
+        $this->resetAfterTest();
+        require_once($CFG->dirroot . '/admin/tool/log/store/xapi/src/client.php');
+
+        $map = \logstore_xapi\client\get_client_verb_map();
+        $this->assertArrayHasKey('answered', $map);
+        $this->assertArrayHasKey('interacted', $map);
+        $this->assertSame(
+            'http://adlnet.gov/expapi/verbs/answered',
+            $map['answered']
+        );
+        $this->assertSame(
+            'http://adlnet.gov/expapi/verbs/interacted',
+            $map['interacted']
+        );
+
+        // Fresh installs (no saved config) allow every known verb.
+        $this->assertTrue(
+            \logstore_xapi\client\is_client_verb_enabled('http://adlnet.gov/expapi/verbs/answered')
+        );
+        $this->assertTrue(
+            \logstore_xapi\client\is_client_verb_enabled('http://adlnet.gov/expapi/verbs/interacted')
+        );
+    }
+
+    /**
+     * Disabled verbs are rejected while other verbs still pass.
+     *
+     * @return void
+     */
+    public function test_disabled_client_verb_is_filtered(): void {
+        global $CFG;
+        $this->resetAfterTest();
+        require_once($CFG->dirroot . '/admin/tool/log/store/xapi/src/client.php');
+
+        set_config('clientverbs', 'answered', 'logstore_xapi');
+        set_config('clientverbs_allow_unknown', 1, 'logstore_xapi');
+
+        $this->assertTrue(
+            \logstore_xapi\client\is_client_verb_enabled('http://adlnet.gov/expapi/verbs/answered')
+        );
+        $this->assertFalse(
+            \logstore_xapi\client\is_client_verb_enabled('http://adlnet.gov/expapi/verbs/interacted')
+        );
+        $this->assertSame(
+            ['answered'],
+            \logstore_xapi\client\get_enabled_client_verbs()
+        );
+        $this->assertSame(
+            ['http://adlnet.gov/expapi/verbs/answered'],
+            \logstore_xapi\client\get_enabled_client_verb_ids()
+        );
+    }
+
+    /**
+     * Unknown verbs follow their own setting.
+     *
+     * @return void
+     */
+    public function test_unknown_client_verb_follows_allow_unknown_setting(): void {
+        global $CFG;
+        $this->resetAfterTest();
+        require_once($CFG->dirroot . '/admin/tool/log/store/xapi/src/client.php');
+
+        set_config('clientverbs', 'answered', 'logstore_xapi');
+
+        set_config('clientverbs_allow_unknown', 1, 'logstore_xapi');
+        $this->assertTrue(
+            \logstore_xapi\client\is_client_verb_enabled('https://example.test/verbs/custom')
+        );
+
+        set_config('clientverbs_allow_unknown', 0, 'logstore_xapi');
+        $this->assertFalse(
+            \logstore_xapi\client\is_client_verb_enabled('https://example.test/verbs/custom')
+        );
+    }
+
+    /**
+     * Worker drops already-queued statements with a disabled verb.
+     *
+     * @return void
+     */
+    public function test_process_drops_disabled_verb(): void {
+        global $CFG, $DB;
+        $this->resetAfterTest();
+        require_once($CFG->dirroot . '/admin/tool/log/store/xapi/src/client.php');
+
+        set_config('clientverbs', 'answered', 'logstore_xapi');
+        set_config('clientverbs_allow_unknown', 1, 'logstore_xapi');
+
+        $user = $this->getDataGenerator()->create_user();
+        $context = \context_user::instance($user->id);
+        $statement = $this->statement();
+        $statement['verb']['id'] = 'http://adlnet.gov/expapi/verbs/interacted';
+        $statement['id'] = 'client-statement-filtered';
+        $json = json_encode($statement);
+        $result = logstore_xapi_queue_client_statement($statement, $json, $user->id, $context->id);
+        $record = $DB->get_record('logstore_xapi_client_log', ['id' => $result['id']], '*', MUST_EXIST);
+
+        $summary = \logstore_xapi\client\process([$record]);
+
+        $this->assertSame(1, $summary['processed']);
+        $this->assertSame(1, $summary['filtered']);
+        $this->assertSame(0, $summary['sent']);
+        $this->assertSame(0, $summary['failed']);
+        $this->assertFalse($DB->record_exists('logstore_xapi_client_log', ['id' => $record->id]));
+    }
 }
