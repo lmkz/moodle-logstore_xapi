@@ -300,19 +300,24 @@ class provider implements
         $userids = $userlist->get_userids();
         if (empty($userids)) {
             return;
-        }
-
-        [$insql, $inparams] = $DB->get_in_or_equal($userids, SQL_PARAMS_NAMED);
-        $params = array_merge($inparams, ['contextid' => $userlist->get_context()->id]);
+        }        [$useridsql, $useridparams] = $DB->get_in_or_equal($userids, SQL_PARAMS_NAMED, 'userid');
+        [$relateduseridsql, $relateduseridparams] = $DB->get_in_or_equal($userids, SQL_PARAMS_NAMED, 'relateduserid');
+        [$realuseridsql, $realuseridparams] = $DB->get_in_or_equal($userids, SQL_PARAMS_NAMED, 'realuserid');
+        $eventparams = array_merge(
+            $useridparams,
+            $relateduseridparams,
+            $realuseridparams,
+            ['contextid' => $userlist->get_context()->id]
+        );
 
         foreach (self::EVENT_TABLES as $table) {
             $DB->delete_records_select($table,
-                "contextid = :contextid AND (userid $insql OR relateduserid $insql OR realuserid $insql)",
-                $params);
+                "contextid = :contextid AND (userid $useridsql OR relateduserid $relateduseridsql OR realuserid $realuseridsql)",
+                $eventparams);
         }
+        $clientparams = array_merge($useridparams, ['contextid' => $userlist->get_context()->id]);
         foreach (self::CLIENT_TABLES as $table) {
-            $DB->delete_records_select($table,
-                "contextid = :contextid AND userid $insql", $params);
+            $DB->delete_records_select($table, "contextid = :contextid AND userid $useridsql", $clientparams);
         }
     }
 
