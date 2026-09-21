@@ -302,5 +302,23 @@ function xmldb_logstore_xapi_upgrade($oldversion) {
         upgrade_plugin_savepoint(true, 2026072002, 'logstore', 'xapi');
     }
 
+    if ($oldversion < 2026072003) {
+        // Backfill defaults for the client-side verb filters. New admin
+        // settings do not get their defaults written until an upgrade runs,
+        // so without this existing sites see every checkbox unticked
+        // (config_read returns null) even though the code treats "never
+        // saved" as all-enabled. Writing the defaults makes the UI match
+        // the runtime behaviour.
+        if (get_config('logstore_xapi', 'clientverbs') === false) {
+            require_once($GLOBALS['CFG']->dirroot . '/admin/tool/log/store/xapi/src/client.php');
+            $verbs = array_keys(\logstore_xapi\client\get_client_verb_map());
+            set_config('clientverbs', implode(',', $verbs), 'logstore_xapi');
+        }
+        if (get_config('logstore_xapi', 'clientverbs_allow_unknown') === false) {
+            set_config('clientverbs_allow_unknown', 1, 'logstore_xapi');
+        }
+        upgrade_plugin_savepoint(true, 2026072003, 'logstore', 'xapi');
+    }
+
     return true;
 }
