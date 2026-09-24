@@ -288,10 +288,15 @@ function process(array $records): array {
             continue;
         }
 
-        $statement = json_decode($record->statement, true);
+        // Re-validate stored payloads: a row written before this hardening,
+        // or via a future caller, must not be able to exhaust the worker.
         $error = null;
+        $statement = null;
+        if (\logstore_xapi_validate_client_statement_json($record->statement ?? '', $error)) {
+            $statement = json_decode($record->statement, true, XAPI_CLIENT_STATEMENT_MAX_DEPTH + 1);
+        }
         if (json_last_error() !== JSON_ERROR_NONE ||
-                !\logstore_xapi_validate_client_statement($statement, $error)) {
+                !\logstore_xapi_validate_client_statement($statement, $error, $record->statement ?? '')) {
             $record->errortype = XAPI_REPORT_ERRORTYPE_TRANSFORM;
             $record->response = $error ?: 'Stored client statement is not valid JSON.';
             \logstore_xapi_update_client_event_failure($record);

@@ -30,9 +30,27 @@ require_sesskey();
 header('Content-Type: application/json');
 
 $statementjson = required_param('statement', PARAM_RAW);
-$statement = json_decode($statementjson, true);
 
-if (json_last_error() !== JSON_ERROR_NONE || !logstore_xapi_validate_client_statement($statement, $error)) {
+// Counter-spoofing: require_login + sesskey prove the request came
+// from the logged-in user's own session (no CSRF), but the user can still
+// hand-craft the POST body. Treat it as hostile input: reject oversized
+// payloads BEFORE json_decode (memory/DoS), then decode with a depth cap.
+if (!logstore_xapi_validate_client_statement_json($statementjson, $error)) {
+    http_response_code($error === 'The statement payload exceeds the maximum allowed size.' ? 413 : 400);
+    echo json_encode([
+        'success' => false,
+        'action' => 'rejected',
+        'queued' => false,
+        'delivered' => false,
+        'duplicate' => false,
+        'message' => $error ?: 'Invalid xAPI statement',
+    ]);
+    die;
+}
+$statement = json_decode($statementjson, true, XAPI_CLIENT_STATEMENT_MAX_DEPTH + 1);
+
+if (json_last_error() !== JSON_ERROR_NONE || !logstore_xapi_validate_client_statement($statement, $error,
+        $statementjson)) {
     http_response_code(400);
     echo json_encode([
         'success' => false,
@@ -59,6 +77,9 @@ if (!\logstore_xapi\client\is_client_verb_enabled($statement['verb']['id'] ?? ''
 
 // The actor is derived from the authenticated user and any client supplied
 // actor is discarded so statements cannot be made to impersonate other users.
+// LRS-owned fields are stripped as well in case a future validator change
+// lets one through; the LRS assigns stored/authority/version itself.
+unset($statement['stored'], $statement['authority']);
 $statement['actor'] = \logstore_xapi\client\get_actor_for_user($USER, [
     'send_mbox' => (bool)get_config('logstore_xapi', 'mbox'),
     'send_name' => (bool)get_config('logstore_xapi', 'send_name'),
@@ -67,6 +88,19 @@ $statement['actor'] = \logstore_xapi\client\get_actor_for_user($USER, [
     'app_url' => $CFG->wwwroot,
 ]);
 $statementjson = json_encode($statement, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
+if ($statementjson === false ||
+        !logstore_xapi_validate_client_statement($statement, $error, $statementjson)) {
+    http_response_code(400);
+    echo json_encode([
+        'success' => false,
+        'action' => 'rejected',
+        'queued' => false,
+        'delivered' => false,
+        'duplicate' => false,
+        'message' => $error ?: 'Invalid xAPI statement',
+    ]);
+    die;
+}
 
 $context = context_user::instance($USER->id);
 $result = logstore_xapi_queue_client_statement(
