@@ -90,6 +90,7 @@ class provider implements
                 'contextid' => 'privacy:metadata:' . self::CLIENT_TABLE . ':contextid',
                 'courseid' => 'privacy:metadata:' . self::CLIENT_TABLE . ':courseid',
                 'ip' => 'privacy:metadata:' . self::CLIENT_TABLE . ':ip',
+                'timecreated' => 'privacy:metadata:' . self::CLIENT_TABLE . ':timecreated',
             ],
             'privacy:metadata:' . self::CLIENT_TABLE
         );
@@ -100,6 +101,7 @@ class provider implements
                 'statementid' => 'privacy:metadata:' . self::CLIENT_SENT_TABLE . ':statementid',
                 'userid' => 'privacy:metadata:' . self::CLIENT_SENT_TABLE . ':userid',
                 'contextid' => 'privacy:metadata:' . self::CLIENT_SENT_TABLE . ':contextid',
+                'timecreated' => 'privacy:metadata:' . self::CLIENT_SENT_TABLE . ':timecreated',
             ],
             'privacy:metadata:' . self::CLIENT_SENT_TABLE
         );

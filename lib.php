@@ -505,15 +505,15 @@ function logstore_xapi_is_valid_iri($value) {
 function logstore_xapi_validate_client_statement_json($statementjson, &$error = null) {
     $error = null;
     if (!is_string($statementjson) || $statementjson === '') {
-        $error = 'The statement payload is required.';
+        $error = get_string('clientpayloadrequired', 'logstore_xapi');
         return false;
     }
     if (strpos($statementjson, "\0") !== false) {
-        $error = 'The statement payload contains an invalid character.';
+        $error = get_string('clientpayloadchar', 'logstore_xapi');
         return false;
     }
     if (strlen($statementjson) > XAPI_CLIENT_STATEMENT_MAX_BYTES) {
-        $error = 'The statement payload exceeds the maximum allowed size.';
+        $error = get_string('clientpayloadsize', 'logstore_xapi');
         return false;
     }
     return true;
@@ -534,19 +534,19 @@ function logstore_xapi_validate_client_statement_json($statementjson, &$error = 
  */
 function logstore_xapi_check_client_statement_shape($node, &$error = null, $depth = 0, &$keycount = 0) {
     if ($depth > XAPI_CLIENT_STATEMENT_MAX_DEPTH) {
-        $error = 'The statement is nested too deeply.';
+        $error = get_string('clientdepth', 'logstore_xapi');
         return false;
     }
     if (is_array($node)) {
         $keycount += count($node);
         if ($keycount > XAPI_CLIENT_STATEMENT_MAX_KEYS) {
-            $error = 'The statement contains too many fields.';
+            $error = get_string('clientmanyfields', 'logstore_xapi');
             return false;
         }
         foreach ($node as $key => $value) {
             if (!is_int($key) && (!is_string($key) || $key === '' || strlen($key) > 128 ||
                     preg_match('/[\x00-\x1F\x7F]/', $key))) {
-                $error = 'The statement contains an invalid field name.';
+                $error = get_string('clientfieldname', 'logstore_xapi');
                 return false;
             }
             if (!logstore_xapi_check_client_statement_shape($value, $error, $depth + 1, $keycount)) {
@@ -557,24 +557,24 @@ function logstore_xapi_check_client_statement_shape($node, &$error = null, $dept
     }
     if (is_string($node)) {
         if (strlen($node) > XAPI_CLIENT_STATEMENT_MAX_STRING) {
-            $error = 'The statement contains a value that is too long.';
+            $error = get_string('clientvaluetoolong', 'logstore_xapi');
             return false;
         }
         if (strpos($node, "\0") !== false ||
                 preg_match('/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]/', $node)) {
-            $error = 'The statement contains an invalid character.';
+            $error = get_string('clientvaluechar', 'logstore_xapi');
             return false;
         }
         return true;
     }
     if (is_null($node) || is_bool($node) || is_int($node) || is_float($node)) {
         if (is_float($node) && !is_finite($node)) {
-            $error = 'The statement contains an invalid number.';
+            $error = get_string('clientnumber', 'logstore_xapi');
             return false;
         }
         return true;
     }
-    $error = 'The statement contains an unsupported value.';
+    $error = get_string('clientvalue', 'logstore_xapi');
     return false;
 }
 
@@ -620,7 +620,7 @@ function logstore_xapi_validate_client_statement($statement, &$error = null, $st
     }
 
     if (!is_array($statement)) {
-        $error = 'The statement must be a JSON object.';
+        $error = get_string('clientnotobject', 'logstore_xapi');
         return false;
     }
 
@@ -629,28 +629,28 @@ function logstore_xapi_validate_client_statement($statement, &$error = null, $st
     // members are rejected explicitly below with a clearer message.
     foreach (array_keys($statement) as $key) {
         if ($key === 'stored' || $key === 'authority') {
-            $error = 'The statement contains a field that only the LRS may set.';
+            $error = get_string('clientlrsfield', 'logstore_xapi');
             return false;
         }
         if (!in_array($key, XAPI_CLIENT_STATEMENT_TOP_LEVEL, true)) {
-            $error = 'The statement contains an unsupported field.';
+            $error = get_string('clienttopfield', 'logstore_xapi');
             return false;
         }
     }
 
     if (empty($statement['actor']) || !is_array($statement['actor'])) {
-        $error = 'The statement actor is required.';
+        $error = get_string('clientactor', 'logstore_xapi');
         return false;
     }
 
     if (empty($statement['verb']) || !is_array($statement['verb']) ||
             empty($statement['verb']['id']) || !logstore_xapi_is_valid_iri($statement['verb']['id'])) {
-        $error = 'The statement verb must contain a valid IRI.';
+        $error = get_string('clientverb', 'logstore_xapi');
         return false;
     }
 
     if (empty($statement['object']) || !is_array($statement['object'])) {
-        $error = 'The statement object is required.';
+        $error = get_string('clientobject', 'logstore_xapi');
         return false;
     }
 
@@ -660,22 +660,22 @@ function logstore_xapi_validate_client_statement($statement, &$error = null, $st
     $objecttype = $statement['object']['objectType'] ?? null;
     if ($objecttype !== null &&
             (!is_string($objecttype) || !in_array($objecttype, XAPI_CLIENT_STATEMENT_OBJECT_TYPES, true))) {
-        $error = 'The statement object type is not supported.';
+        $error = get_string('clientobjecttype', 'logstore_xapi');
         return false;
     }
     if (isset($statement['object']['id'])) {
         if (!is_string($statement['object']['id']) || $statement['object']['id'] === '' ||
                 strlen($statement['object']['id']) > XAPI_CLIENT_STATEMENT_MAX_IRI) {
-            $error = 'The statement object id must be a non-empty string.';
+            $error = get_string('clientobjectid', 'logstore_xapi');
             return false;
         }
         if (($objecttype === null || $objecttype === 'Activity') &&
                 !logstore_xapi_is_valid_iri($statement['object']['id'])) {
-            $error = 'The statement object id must be a valid IRI.';
+            $error = get_string('clientobjectidiri', 'logstore_xapi');
             return false;
         }
     } else if ($objecttype === null) {
-        $error = 'The statement object must contain an id or objectType.';
+        $error = get_string('clientobjectidor', 'logstore_xapi');
         return false;
     }
 
@@ -684,24 +684,23 @@ function logstore_xapi_validate_client_statement($statement, &$error = null, $st
                 strlen($statement['id']) > XAPI_CLIENT_STATEMENT_MAX_ID ||
                 strpos($statement['id'], "\0") !== false ||
                 preg_match('/[\x00-\x1F\x7F\s]/', $statement['id'])) {
-            $error = 'The statement id must be a non-empty string.';
+            $error = get_string('clientstatementid', 'logstore_xapi');
             return false;
         }
     }
 
     if (isset($statement['timestamp']) && !logstore_xapi_is_valid_statement_timestamp($statement['timestamp'])) {
-        $error = 'The statement timestamp is not valid.';
+        $error = get_string('clienttimestamp', 'logstore_xapi');
         return false;
     }
 
     if (isset($statement['version'])) {
         if (!is_string($statement['version']) || strlen($statement['version']) > 16 ||
                 !preg_match('/^1\.0\.\d+$/', $statement['version'])) {
-            $error = 'The statement version is not supported.';
+            $error = get_string('clientversion', 'logstore_xapi');
             return false;
         }
     }
-
 
     $keycount = 0;
     if (!logstore_xapi_check_client_statement_shape($statement, $error, 0, $keycount)) {

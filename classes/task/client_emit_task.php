@@ -10,9 +10,9 @@ namespace logstore_xapi\task;
 
 defined('MOODLE_INTERNAL') || die();
 
-require_once(dirname(__DIR__, 2) . '/lib.php');
-
 use logstore_xapi\client\queue_processor;
+
+require_once(dirname(__DIR__, 2) . '/lib.php');
 
 /**
  * Emit queued client-side statements to the LRS.

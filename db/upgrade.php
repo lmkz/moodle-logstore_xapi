@@ -186,15 +186,15 @@ function create_xapi_notification_table($dbman, $tablename) {
     }
 }
 
- /**
-  * Create a client statement table.
-  *
-  * @param object $dbman Database manipulation object.
-  * @param string $tablename Table name.
-  * @param bool $sent Whether this is the sent idempotency table.
-  * @return void
-  */
-function create_xapi_client_table($dbman, $tablename, $sent = false) {
+  /**
+   * Create a client statement table.
+   *
+   * @param object $dbman Database manipulation object.
+   * @param string $tablename Table name.
+   * @param bool $sent Whether this is the sent idempotency table.
+   * @return void
+   */
+function logstore_xapi_create_client_table($dbman, $tablename, $sent = false) {
     $table = new xmldb_table($tablename);
     $table->add_field('id', XMLDB_TYPE_INTEGER, '10', null, XMLDB_NOTNULL, XMLDB_SEQUENCE, null);
     $table->add_field('clientkey', XMLDB_TYPE_CHAR, '64', null, XMLDB_NOTNULL, null, null);
@@ -297,8 +297,8 @@ function xmldb_logstore_xapi_upgrade($oldversion) {
     }
 
     if ($oldversion < 2026072002) {
-        create_xapi_client_table($dbman, 'logstore_xapi_client_log');
-        create_xapi_client_table($dbman, 'logstore_xapi_client_sent', true);
+        logstore_xapi_create_client_table($dbman, 'logstore_xapi_client_log');
+        logstore_xapi_create_client_table($dbman, 'logstore_xapi_client_sent', true);
         upgrade_plugin_savepoint(true, 2026072002, 'logstore', 'xapi');
     }
 

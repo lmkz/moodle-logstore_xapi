@@ -26,10 +26,25 @@ global $DB, $CFG;
 require_login();
 require_sesskey();
 
+header('Content-Type: application/json');
+
+// State-changing endpoint: only POST carries the statement body.
+if (($_SERVER['REQUEST_METHOD'] ?? '') !== 'POST') {
+    http_response_code(405);
+    echo json_encode([
+        'success' => false,
+        'action' => 'rejected',
+        'queued' => false,
+        'delivered' => false,
+        'duplicate' => false,
+        'message' => get_string('clientajaxmethod', 'logstore_xapi'),
+    ]);
+    die;
+}
+
 // Guest telemetry is meaningless (no real user to attribute the actor to)
 // and only fills the queue, so reject it up front.
 if (isguestuser()) {
-    header('Content-Type: application/json');
     http_response_code(403);
     echo json_encode([
         'success' => false,
@@ -37,12 +52,10 @@ if (isguestuser()) {
         'queued' => false,
         'delivered' => false,
         'duplicate' => false,
-        'message' => 'Guest users cannot submit xAPI statements',
+        'message' => get_string('clientajaxguest', 'logstore_xapi'),
     ]);
     die;
 }
-
-header('Content-Type: application/json');
 
 $statementjson = required_param('statement', PARAM_RAW);
 
@@ -51,14 +64,14 @@ $statementjson = required_param('statement', PARAM_RAW);
 // hand-craft the POST body. Treat it as hostile input: reject oversized
 // payloads BEFORE json_decode (memory/DoS), then decode with a depth cap.
 if (!logstore_xapi_validate_client_statement_json($statementjson, $error)) {
-    http_response_code($error === 'The statement payload exceeds the maximum allowed size.' ? 413 : 400);
+    http_response_code($error === get_string('clientpayloadsize', 'logstore_xapi') ? 413 : 400);
     echo json_encode([
         'success' => false,
         'action' => 'rejected',
         'queued' => false,
         'delivered' => false,
         'duplicate' => false,
-        'message' => $error ?: 'Invalid xAPI statement',
+        'message' => $error ?: get_string('clientajaxinvalid', 'logstore_xapi'),
     ]);
     die;
 }
@@ -73,7 +86,7 @@ if (json_last_error() !== JSON_ERROR_NONE || !logstore_xapi_validate_client_stat
         'queued' => false,
         'delivered' => false,
         'duplicate' => false,
-        'message' => $error ?: 'Invalid xAPI statement',
+        'message' => $error ?: get_string('clientajaxinvalid', 'logstore_xapi'),
     ]);
     die;
 }
@@ -85,7 +98,7 @@ if (!\logstore_xapi\client\verb_policy::is_enabled($statement['verb']['id'] ?? '
         'queued' => false,
         'delivered' => false,
         'duplicate' => false,
-        'message' => 'Client-side xAPI statement filtered by verb settings',
+        'message' => get_string('clientajaxfiltered', 'logstore_xapi'),
     ]);
     die;
 }
@@ -116,7 +129,7 @@ if ($statementjson === false ||
         'queued' => false,
         'delivered' => false,
         'duplicate' => false,
-        'message' => $error ?: 'Invalid xAPI statement',
+        'message' => $error ?: get_string('clientajaxinvalid', 'logstore_xapi'),
     ]);
     die;
 }
@@ -170,10 +183,10 @@ $response = [
     'queued' => !$result['duplicate'] && ($isbackground || $action === 'queued' || $action === 'failed'),
     'delivered' => !$result['duplicate'] && $action === 'sent',
     'duplicate' => $result['duplicate'],
-    'message' => $result['duplicate'] ? 'Client-side xAPI statement already processed or queued' :
-        ($action === 'queued' ? 'Client-side xAPI statement queued for processing' :
-        ($action === 'sent' ? 'Client-side xAPI statement sent to the LRS' :
-        'Client-side xAPI statement failed to send and was queued for retry')),
+    'message' => $result['duplicate'] ? get_string('clientajaxduplicate', 'logstore_xapi') :
+        ($action === 'queued' ? get_string('clientajaxqueued', 'logstore_xapi') :
+        ($action === 'sent' ? get_string('clientajaxsent', 'logstore_xapi') :
+        get_string('clientajaxfailed', 'logstore_xapi'))),
 ];
 
 if ($delivery !== null && $action === 'failed' && !empty($delivery['results'][0])) {
