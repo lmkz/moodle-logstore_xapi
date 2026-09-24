@@ -288,4 +288,97 @@ final class client_queue_test extends \advanced_testcase {
         $this->assertSame(0, $summary['failed']);
         $this->assertFalse($DB->record_exists('logstore_xapi_client_log', ['id' => $record->id]));
     }
+
+    /**
+     * Statements containing JSON lists (grouping, choices) are accepted.
+     *
+     * Decoded lists carry integer keys, which are not field names and must
+     * not trip the shape check.
+     *
+     * @return void
+     */
+    public function test_validate_client_statement_accepts_lists(): void {
+        $error = null;
+        $statement = $this->statement();
+        $statement['context'] = ['contextActivities' => ['grouping' => [
+            ['id' => 'https://example.test/course/view.php?id=7'],
+        ]]];
+        $statement['object']['definition'] = ['choices' => [
+            ['id' => 'a'], ['id' => 'b'],
+        ]];
+        $this->assertTrue(logstore_xapi_validate_client_statement($statement, $error));
+        $this->assertNull($error);
+    }
+
+    /**
+     * A grouping claim for an accessible course verifies and normalises.
+     *
+     * @return void
+     */
+    public function test_resolve_client_statement_course_returns_verified_course(): void {
+        global $CFG, $DB;
+        $this->resetAfterTest();
+
+        $course = $this->getDataGenerator()->create_course();
+        $user = $this->getDataGenerator()->create_user();
+        $studentrole = $DB->get_record('role', ['shortname' => 'student'], '*', MUST_EXIST);
+        $this->getDataGenerator()->enrol_user($user->id, $course->id, $studentrole->id);
+
+        $statement = $this->statement();
+        $statement['context'] = ['contextActivities' => ['grouping' => [
+            ['id' => 'https://evil.test/course/view.php?id=' . $course->id],
+            ['id' => $CFG->wwwroot . '/course/view.php?id=' . $course->id],
+        ]]];
+
+        $courseid = logstore_xapi_resolve_client_statement_course($statement, $user);
+
+        $this->assertSame((int)$course->id, $courseid);
+        // Verified claims carry the standard course activity, identical to
+        // server-side statements: cmi5 course type plus the localised name.
+        $grouping = $statement['context']['contextActivities']['grouping'];
+        $this->assertCount(1, $grouping);
+        $this->assertSame($CFG->wwwroot . '/course/view.php?id=' . $course->id, $grouping[0]['id']);
+        $this->assertSame(
+            'https://w3id.org/xapi/cmi5/activitytype/course',
+            $grouping[0]['definition']['type']
+        );
+        $this->assertSame($course->fullname, reset($grouping[0]['definition']['name']));
+    }
+
+    /**
+     * Grouping claims for inaccessible or off-site courses are stripped.
+     *
+     * @return void
+     */
+    public function test_resolve_client_statement_course_rejects_unverifiable_claims(): void {
+        global $CFG;
+        $this->resetAfterTest();
+
+        $owncourse = $this->getDataGenerator()->create_course();
+        $othercourse = $this->getDataGenerator()->create_course();
+        $user = $this->getDataGenerator()->create_user();
+        $studentrole = $GLOBALS['DB']->get_record('role', ['shortname' => 'student'], '*', MUST_EXIST);
+        $this->getDataGenerator()->enrol_user($user->id, $owncourse->id, $studentrole->id);
+
+        // Enrolled nowhere near the claimed course: forged claim.
+        $statement = $this->statement();
+        $statement['context'] = ['contextActivities' => ['grouping' => [
+            ['id' => $CFG->wwwroot . '/course/view.php?id=' . $othercourse->id],
+        ]]];
+        $this->assertNull(logstore_xapi_resolve_client_statement_course($statement, $user));
+        $this->assertArrayNotHasKey('context', $statement);
+
+        // Off-site URL: not this LMS at all.
+        $statement = $this->statement();
+        $statement['context'] = ['contextActivities' => ['grouping' => [
+            ['id' => 'https://evil.test/course/view.php?id=' . $owncourse->id],
+        ]]];
+        $this->assertNull(logstore_xapi_resolve_client_statement_course($statement, $user));
+        $this->assertArrayNotHasKey('context', $statement);
+
+        // No grouping at all: nothing to do, statement untouched.
+        $statement = $this->statement();
+        $this->assertNull(logstore_xapi_resolve_client_statement_course($statement, $user));
+        $this->assertArrayNotHasKey('context', $statement);
+    }
 }

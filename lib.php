@@ -544,8 +544,8 @@ function logstore_xapi_check_client_statement_shape($node, &$error = null, $dept
             return false;
         }
         foreach ($node as $key => $value) {
-            if (!is_string($key) || $key === '' || strlen($key) > 128 ||
-                    preg_match('/[\x00-\x1F\x7F]/', $key)) {
+            if (!is_int($key) && (!is_string($key) || $key === '' || strlen($key) > 128 ||
+                    preg_match('/[\x00-\x1F\x7F]/', $key))) {
                 $error = 'The statement contains an invalid field name.';
                 return false;
             }
@@ -709,6 +709,74 @@ function logstore_xapi_validate_client_statement($statement, &$error = null, $st
     }
 
     return true;
+}
+
+/**
+ * Derive the course for a client-side statement and strip untrusted claims.
+ *
+ * sender.js hints the course via context.contextActivities.grouping, but that
+ * value comes from the browser and can be forged to claim any course. Keep
+ * only a grouping entry that points at a course on this site which the user
+ * can access, and return its id so the queue row carries a server-verified
+ * course. Anything else is removed so an unverified course association is
+ * not forwarded to the LRS.
+ *
+ * A verified claim is enriched with the same standard course activity the
+ * server-side transformer emits (cmi5 course type, localised name, and the
+ * short-id/external-id extensions only when the admin enables them), so
+ * client and server statements describe the course identically.
+ *
+ * @param array $statement Decoded statement, updated in place.
+ * @param stdClass $user Authenticated user.
+ * @return int|null Verified course id, or null when no claim verifies.
+ */
+function logstore_xapi_resolve_client_statement_course(array &$statement, $user) {
+    global $CFG, $DB;
+
+    $grouping = $statement['context']['contextActivities']['grouping'] ?? null;
+    if ($grouping === null) {
+        return null;
+    }
+    $entries = is_array($grouping) && array_key_exists('id', $grouping) ? [$grouping] : (array)$grouping;
+
+    $base = preg_quote($CFG->wwwroot, '#');
+    foreach ($entries as $entry) {
+        if (!is_array($entry) || empty($entry['id']) || !is_string($entry['id'])) {
+            continue;
+        }
+        if (!preg_match('#^' . $base . '/course/view\.php\?id=(\d+)$#', $entry['id'], $matches)) {
+            continue;
+        }
+        $courseid = (int)$matches[1];
+        if ($courseid <= 0) {
+            continue;
+        }
+        $course = $DB->get_record('course', ['id' => $courseid]);
+        if (!$course || !can_access_course($course, $user)) {
+            continue;
+        }
+        // Replace the browser's bare URL with the standard course activity,
+        // mirroring classes/log/store.php so both statement sources agree.
+        require_once($CFG->dirroot . '/admin/tool/log/store/xapi/src/autoload.php');
+        $activityconfig = [
+            'app_url' => $CFG->wwwroot,
+            'send_short_course_id' => get_config('logstore_xapi', 'shortcourseid'),
+            'send_course_and_module_idnumber' => get_config('logstore_xapi', 'sendidnumber'),
+        ];
+        $statement['context']['contextActivities']['grouping'] =
+            [\src\transformer\utils\get_activity\course($activityconfig, $course)];
+        return $courseid;
+    }
+
+    // No verifiable course claim: remove the grouping so it is not forwarded.
+    unset($statement['context']['contextActivities']['grouping']);
+    if (empty($statement['context']['contextActivities'])) {
+        unset($statement['context']['contextActivities']);
+    }
+    if (empty($statement['context'])) {
+        unset($statement['context']);
+    }
+    return null;
 }
 
 /**

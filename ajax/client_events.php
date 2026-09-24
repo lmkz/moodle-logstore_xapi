@@ -102,6 +102,10 @@ $statement['actor'] = \logstore_xapi\client\queue_processor::get_actor_for_user(
     'account_homepage' => (string)get_config('logstore_xapi', 'account_homepage'),
     'app_url' => $CFG->wwwroot,
 ]);
+// The browser's course grouping is a hint, not a fact: resolve it to a
+// server-verified course id (or strip it) so forged claims reach neither
+// the queue row nor the LRS.
+$courseid = logstore_xapi_resolve_client_statement_course($statement, $USER);
 $statementjson = json_encode($statement, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
 if ($statementjson === false ||
         !logstore_xapi_validate_client_statement($statement, $error, $statementjson)) {
@@ -123,7 +127,7 @@ $result = logstore_xapi_queue_client_statement(
     $statementjson,
     $USER->id,
     $context->id,
-    null,
+    $courseid,
     getremoteaddr()
 );
 
