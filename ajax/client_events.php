@@ -26,6 +26,22 @@ global $DB, $CFG;
 require_login();
 require_sesskey();
 
+// Guest telemetry is meaningless (no real user to attribute the actor to)
+// and only fills the queue, so reject it up front.
+if (isguestuser()) {
+    header('Content-Type: application/json');
+    http_response_code(403);
+    echo json_encode([
+        'success' => false,
+        'action' => 'rejected',
+        'queued' => false,
+        'delivered' => false,
+        'duplicate' => false,
+        'message' => 'Guest users cannot submit xAPI statements',
+    ]);
+    die;
+}
+
 header('Content-Type: application/json');
 
 $statementjson = required_param('statement', PARAM_RAW);
