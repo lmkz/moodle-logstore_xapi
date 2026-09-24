@@ -34,7 +34,11 @@ use logstore_xapi\client\verb_policy;
  */
 class hook_callbacks {
     /**
-     * Conditionally include JavaScript on every page.
+     * Conditionally include the client-side xAPI sender.
+     *
+     * H5P content renders inside courses and activity modules, so the
+     * listener is only attached there — not on dashboards, admin or
+     * profile pages where it could never fire.
      *
      * @param before_http_headers $hook Hook instance.
      * @return void
@@ -43,6 +47,14 @@ class hook_callbacks {
         global $PAGE;
 
         if (!get_config('logstore_xapi', 'captureclientsideevents')) {
+            return;
+        }
+        if (isguestuser()) {
+            return;
+        }
+
+        $context = $PAGE->context ?? null;
+        if (!$context || !in_array($context->contextlevel, [CONTEXT_COURSE, CONTEXT_MODULE], true)) {
             return;
         }
 
