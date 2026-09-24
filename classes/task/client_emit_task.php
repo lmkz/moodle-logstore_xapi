@@ -10,8 +10,9 @@ namespace logstore_xapi\task;
 
 defined('MOODLE_INTERNAL') || die();
 
-require_once(dirname(__DIR__, 2) . '/src/client.php');
 require_once(dirname(__DIR__, 2) . '/lib.php');
+
+use logstore_xapi\client\queue_processor;
 
 /**
  * Emit queued client-side statements to the LRS.
@@ -41,13 +42,13 @@ class client_emit_task extends \core\task\scheduled_task {
             $batchsize = 30;
         }
 
-        $live = \logstore_xapi\client\process_queued($batchsize, XAPI_IMPORT_TYPE_LIVE);
+        $live = queue_processor::process_queued($batchsize, XAPI_IMPORT_TYPE_LIVE);
         mtrace('logstore_xapi client_emit_task: ' . $live['sent'] . ' sent, ' .
             $live['failed'] . ' failed, ' . ($live['filtered'] ?? 0) . ' filtered from live queue.');
 
         // Failed records are retried by the same task. This keeps the minimal
         // implementation from requiring a second queue or failed-task class.
-        $failed = \logstore_xapi\client\process_queued($batchsize, XAPI_IMPORT_TYPE_FAILED);
+        $failed = queue_processor::process_queued($batchsize, XAPI_IMPORT_TYPE_FAILED);
         mtrace('logstore_xapi client_emit_task: ' . $failed['sent'] . ' sent, ' .
             $failed['failed'] . ' failed, ' . ($failed['filtered'] ?? 0) . ' filtered from retry queue.');
     }

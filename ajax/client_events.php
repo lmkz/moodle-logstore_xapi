@@ -20,7 +20,6 @@ define('AJAX_SCRIPT', true);
 
 require_once(dirname(dirname(dirname(dirname(dirname(dirname(dirname(__FILE__))))))) . '/config.php');
 require_once($CFG->dirroot . '/admin/tool/log/store/xapi/lib.php');
-require_once($CFG->dirroot . '/admin/tool/log/store/xapi/src/client.php');
 
 global $DB, $CFG;
 
@@ -63,7 +62,7 @@ if (json_last_error() !== JSON_ERROR_NONE || !logstore_xapi_validate_client_stat
     die;
 }
 
-if (!\logstore_xapi\client\is_client_verb_enabled($statement['verb']['id'] ?? '')) {
+if (!\logstore_xapi\client\verb_policy::is_enabled($statement['verb']['id'] ?? '')) {
     echo json_encode([
         'success' => true,
         'action' => 'filtered',
@@ -80,7 +79,7 @@ if (!\logstore_xapi\client\is_client_verb_enabled($statement['verb']['id'] ?? ''
 // LRS-owned fields are stripped as well in case a future validator change
 // lets one through; the LRS assigns stored/authority/version itself.
 unset($statement['stored'], $statement['authority']);
-$statement['actor'] = \logstore_xapi\client\get_actor_for_user($USER, [
+$statement['actor'] = \logstore_xapi\client\queue_processor::get_actor_for_user($USER, [
     'send_mbox' => (bool)get_config('logstore_xapi', 'mbox'),
     'send_name' => (bool)get_config('logstore_xapi', 'send_name'),
     'send_username' => (bool)get_config('logstore_xapi', 'send_username'),
@@ -129,7 +128,7 @@ if (!$result['duplicate'] && !$isbackground) {
             'results' => [['id' => $result['id'], 'success' => true, 'errortype' => 0, 'response' => '']],
         ];
     } else {
-        $delivery = \logstore_xapi\client\process_records([$record]);
+        $delivery = \logstore_xapi\client\queue_processor::process_records([$record]);
     }
 }
 

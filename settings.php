@@ -28,7 +28,6 @@ defined('MOODLE_INTERNAL') || die();
 
 require_once(__DIR__ . '/src/autoload.php');
 require_once($CFG->dirroot . '/admin/tool/log/store/xapi/lib.php');
-require_once($CFG->dirroot . '/admin/tool/log/store/xapi/src/client.php');
 
 if ($hassiteconfig) {
     // Create a subcategory under Logging to group all xAPI pages together.
@@ -234,7 +233,7 @@ if ($hassiteconfig) {
         get_string('heading_clientverbs_desc', 'logstore_xapi')
     ));
 
-    $clientverbmap = \logstore_xapi\client\get_client_verb_map();
+    $clientverbmap = \logstore_xapi\client\verb_policy::get_verb_map();
     $clientverbchoices = [];
     foreach ($clientverbmap as $short => $iri) {
         $clientverbchoices[$short] = ucfirst($short);

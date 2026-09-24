@@ -310,8 +310,7 @@ function xmldb_logstore_xapi_upgrade($oldversion) {
         // saved" as all-enabled. Writing the defaults makes the UI match
         // the runtime behaviour.
         if (get_config('logstore_xapi', 'clientverbs') === false) {
-            require_once($GLOBALS['CFG']->dirroot . '/admin/tool/log/store/xapi/src/client.php');
-            $verbs = array_keys(\logstore_xapi\client\get_client_verb_map());
+            $verbs = array_keys(\logstore_xapi\client\verb_policy::get_verb_map());
             set_config('clientverbs', implode(',', $verbs), 'logstore_xapi');
         }
         if (get_config('logstore_xapi', 'clientverbs_allow_unknown') === false) {

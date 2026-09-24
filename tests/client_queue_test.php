@@ -13,6 +13,9 @@ defined('MOODLE_INTERNAL') || die();
 global $CFG;
 require_once($CFG->dirroot . '/admin/tool/log/store/xapi/lib.php');
 
+use logstore_xapi\client\queue_processor;
+use logstore_xapi\client\verb_policy;
+
 /**
  * Tests for client-side xAPI statement queue helpers.
  *
@@ -97,9 +100,6 @@ final class client_queue_test extends \advanced_testcase {
      * @return void
      */
     public function test_get_actor_for_user(): void {
-        global $CFG;
-        require_once($CFG->dirroot . '/admin/tool/log/store/xapi/src/client.php');
-
         $user = (object) [
             'id' => 42,
             'username' => 'learner',
@@ -115,20 +115,20 @@ final class client_queue_test extends \advanced_testcase {
             'app_url' => 'https://lms.example.test',
         ];
 
-        $actor = \logstore_xapi\client\get_actor_for_user($user, $config);
+        $actor = queue_processor::get_actor_for_user($user, $config);
         $this->assertSame('https://lms.example.test', $actor['account']['homePage']);
         $this->assertSame('42', $actor['account']['name']);
 
         $config['send_username'] = true;
-        $actor = \logstore_xapi\client\get_actor_for_user($user, $config);
+        $actor = queue_processor::get_actor_for_user($user, $config);
         $this->assertSame('learner', $actor['account']['name']);
 
         $config['send_mbox'] = true;
-        $actor = \logstore_xapi\client\get_actor_for_user($user, $config);
+        $actor = queue_processor::get_actor_for_user($user, $config);
         $this->assertSame('mailto:learner@example.test', $actor['mbox']);
 
         $config['send_name'] = true;
-        $actor = \logstore_xapi\client\get_actor_for_user($user, $config);
+        $actor = queue_processor::get_actor_for_user($user, $config);
         $this->assertSame('Test Learner', $actor['name']);
     }
 
@@ -188,11 +188,9 @@ final class client_queue_test extends \advanced_testcase {
      * @return void
      */
     public function test_client_verb_map_defaults_to_all_enabled(): void {
-        global $CFG;
         $this->resetAfterTest();
-        require_once($CFG->dirroot . '/admin/tool/log/store/xapi/src/client.php');
 
-        $map = \logstore_xapi\client\get_client_verb_map();
+        $map = verb_policy::get_verb_map();
         $this->assertArrayHasKey('answered', $map);
         $this->assertArrayHasKey('interacted', $map);
         $this->assertSame(
@@ -206,10 +204,10 @@ final class client_queue_test extends \advanced_testcase {
 
         // Fresh installs (no saved config) allow every known verb.
         $this->assertTrue(
-            \logstore_xapi\client\is_client_verb_enabled('http://adlnet.gov/expapi/verbs/answered')
+            verb_policy::is_enabled('http://adlnet.gov/expapi/verbs/answered')
         );
         $this->assertTrue(
-            \logstore_xapi\client\is_client_verb_enabled('http://adlnet.gov/expapi/verbs/interacted')
+            verb_policy::is_enabled('http://adlnet.gov/expapi/verbs/interacted')
         );
     }
 
@@ -219,26 +217,24 @@ final class client_queue_test extends \advanced_testcase {
      * @return void
      */
     public function test_disabled_client_verb_is_filtered(): void {
-        global $CFG;
         $this->resetAfterTest();
-        require_once($CFG->dirroot . '/admin/tool/log/store/xapi/src/client.php');
 
         set_config('clientverbs', 'answered', 'logstore_xapi');
         set_config('clientverbs_allow_unknown', 1, 'logstore_xapi');
 
         $this->assertTrue(
-            \logstore_xapi\client\is_client_verb_enabled('http://adlnet.gov/expapi/verbs/answered')
+            verb_policy::is_enabled('http://adlnet.gov/expapi/verbs/answered')
         );
         $this->assertFalse(
-            \logstore_xapi\client\is_client_verb_enabled('http://adlnet.gov/expapi/verbs/interacted')
+            verb_policy::is_enabled('http://adlnet.gov/expapi/verbs/interacted')
         );
         $this->assertSame(
             ['answered'],
-            \logstore_xapi\client\get_enabled_client_verbs()
+            verb_policy::get_enabled_verbs()
         );
         $this->assertSame(
             ['http://adlnet.gov/expapi/verbs/answered'],
-            \logstore_xapi\client\get_enabled_client_verb_ids()
+            verb_policy::get_enabled_verb_ids()
         );
     }
 
@@ -248,20 +244,18 @@ final class client_queue_test extends \advanced_testcase {
      * @return void
      */
     public function test_unknown_client_verb_follows_allow_unknown_setting(): void {
-        global $CFG;
         $this->resetAfterTest();
-        require_once($CFG->dirroot . '/admin/tool/log/store/xapi/src/client.php');
 
         set_config('clientverbs', 'answered', 'logstore_xapi');
 
         set_config('clientverbs_allow_unknown', 1, 'logstore_xapi');
         $this->assertTrue(
-            \logstore_xapi\client\is_client_verb_enabled('https://example.test/verbs/custom')
+            verb_policy::is_enabled('https://example.test/verbs/custom')
         );
 
         set_config('clientverbs_allow_unknown', 0, 'logstore_xapi');
         $this->assertFalse(
-            \logstore_xapi\client\is_client_verb_enabled('https://example.test/verbs/custom')
+            verb_policy::is_enabled('https://example.test/verbs/custom')
         );
     }
 
@@ -271,9 +265,8 @@ final class client_queue_test extends \advanced_testcase {
      * @return void
      */
     public function test_process_drops_disabled_verb(): void {
-        global $CFG, $DB;
+        global $DB;
         $this->resetAfterTest();
-        require_once($CFG->dirroot . '/admin/tool/log/store/xapi/src/client.php');
 
         set_config('clientverbs', 'answered', 'logstore_xapi');
         set_config('clientverbs_allow_unknown', 1, 'logstore_xapi');
@@ -287,7 +280,7 @@ final class client_queue_test extends \advanced_testcase {
         $result = logstore_xapi_queue_client_statement($statement, $json, $user->id, $context->id);
         $record = $DB->get_record('logstore_xapi_client_log', ['id' => $result['id']], '*', MUST_EXIST);
 
-        $summary = \logstore_xapi\client\process([$record]);
+        $summary = queue_processor::process([$record]);
 
         $this->assertSame(1, $summary['processed']);
         $this->assertSame(1, $summary['filtered']);

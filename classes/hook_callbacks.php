@@ -27,6 +27,7 @@
 namespace logstore_xapi;
 
 use core\hook\output\before_http_headers;
+use logstore_xapi\client\verb_policy;
 
 /**
  * Hook callback handlers.
@@ -45,13 +46,11 @@ class hook_callbacks {
             return;
         }
 
-        require_once(dirname(__DIR__) . '/src/client.php');
-
         $PAGE->requires->js('/admin/tool/log/store/xapi/sender.js');
         $filterconfig = [
-            'enabledVerbs' => \logstore_xapi\client\get_enabled_client_verb_ids(),
-            'knownVerbs' => array_values(\logstore_xapi\client\get_client_verb_map()),
-            'allowUnknown' => \logstore_xapi\client\get_clientverbs_allow_unknown(),
+            'enabledVerbs' => verb_policy::get_enabled_verb_ids(),
+            'knownVerbs' => array_values(verb_policy::get_verb_map()),
+            'allowUnknown' => verb_policy::allow_unknown(),
         ];
         $PAGE->requires->js_init_code(
             'window.logstoreXapiClientVerbs = ' . json_encode($filterconfig) . ';'
