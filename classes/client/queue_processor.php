@@ -18,7 +18,7 @@
  * Client-side xAPI statement queue processor.
  *
  * @package   logstore_xapi
- * @copyright 2026 David Pesce <david.pesce@exputo.com>
+ * @copyright 2026 Lachlan Keown <lachlankeown@gmail.com>, NZ ADL
  * @license   https://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
  */
 

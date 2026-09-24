@@ -18,9 +18,7 @@
  * server-side handler in logstore_xapi.
  *
  * @package   logstore_xapi
- * @copyright Jerret Fowler <jerrett.fowler@gmail.com>
- *            Ryan Smith <https://www.linkedin.com/in/ryan-smith-uk/>
- *            David Pesce <david.pesce@exputo.com>
+ * @copyright 2026 Lachlan Keown <lachlankeown@gmail.com>, NZ ADL
  * @license   https://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
  */
 
