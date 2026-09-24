@@ -359,13 +359,13 @@ final class client_queue_test extends \advanced_testcase {
      * @return void
      */
     public function test_resolve_client_statement_course_rejects_unverifiable_claims(): void {
-        global $CFG;
+        global $CFG, $DB;
         $this->resetAfterTest();
 
         $owncourse = $this->getDataGenerator()->create_course();
         $othercourse = $this->getDataGenerator()->create_course();
         $user = $this->getDataGenerator()->create_user();
-        $studentrole = $GLOBALS['DB']->get_record('role', ['shortname' => 'student'], '*', MUST_EXIST);
+        $studentrole = $DB->get_record('role', ['shortname' => 'student'], '*', MUST_EXIST);
         $this->getDataGenerator()->enrol_user($user->id, $owncourse->id, $studentrole->id);
 
         // Enrolled nowhere near the claimed course: forged claim.
