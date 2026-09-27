@@ -175,7 +175,7 @@
     }
 
     /**
-     * Ensure object.id is current page URL.
+     * Ensure Activity object.id is set, using the current page URL as a fallback.
      *
      * @param {Object} statement xAPI statement.
      * @returns {Object} modified statement.
@@ -185,7 +185,8 @@
             statement.object = {};
         }
 
-        if (statement.object.id !== window.location.href) {
+        var objectType = statement.object.objectType;
+        if (!statement.object.id && (!objectType || objectType === 'Activity')) {
             statement.object.id = window.location.href;
         }
 
