@@ -319,6 +319,68 @@ final class client_queue_test extends \advanced_testcase {
     }
 
     /**
+     * Failed records past the attempt cap are skipped, not retried.
+     *
+     * @return void
+     */
+    public function test_process_skips_exhausted_failed_records(): void {
+        global $DB;
+        $this->resetAfterTest();
+
+        $user = $this->getDataGenerator()->create_user();
+        $context = \context_user::instance($user->id);
+        $statement = $this->statement();
+        $statement['id'] = 'client-statement-exhausted';
+        $json = json_encode($statement);
+        $result = logstore_xapi_queue_client_statement($statement, $json, $user->id, $context->id);
+        $DB->set_field('logstore_xapi_client_log', 'type', XAPI_IMPORT_TYPE_FAILED, ['id' => $result['id']]);
+        $DB->set_field('logstore_xapi_client_log', 'attempts', XAPI_CLIENT_QUEUE_MAX_ATTEMPTS,
+            ['id' => $result['id']]);
+        $record = $DB->get_record('logstore_xapi_client_log', ['id' => $result['id']], '*', MUST_EXIST);
+
+        $summary = queue_processor::process([$record]);
+
+        $this->assertSame(1, $summary['processed']);
+        $this->assertSame(1, $summary['exhausted']);
+        $this->assertSame(0, $summary['sent']);
+        $this->assertSame(0, $summary['failed']);
+        // The row is kept for inspection; no delivery was attempted.
+        $this->assertTrue($DB->record_exists('logstore_xapi_client_log', ['id' => $record->id]));
+    }
+
+    /**
+     * The scheduled task prunes aged sent rows even when capture is off.
+     *
+     * @return void
+     */
+    public function test_client_emit_task_prunes_old_sent_rows(): void {
+        global $DB;
+        $this->resetAfterTest();
+
+        $user = $this->getDataGenerator()->create_user();
+        $context = \context_user::instance($user->id);
+        $old = [
+            'clientkey' => hash('sha256', 'old-row'),
+            'statementid' => 'old-statement',
+            'userid' => $user->id,
+            'contextid' => $context->id,
+            'timecreated' => time() - XAPI_CLIENT_SENT_RETENTION_SECS - 100,
+        ];
+        $oldid = $DB->insert_record('logstore_xapi_client_sent', (object)$old);
+        $recentid = $DB->insert_record('logstore_xapi_client_sent', (object)array_merge($old, [
+            'clientkey' => hash('sha256', 'recent-row'),
+            'statementid' => 'recent-statement',
+            'timecreated' => time(),
+        ]));
+
+        $task = new \logstore_xapi\task\client_emit_task();
+        $task->execute();
+
+        $this->assertFalse($DB->record_exists('logstore_xapi_client_sent', ['id' => $oldid]));
+        $this->assertTrue($DB->record_exists('logstore_xapi_client_sent', ['id' => $recentid]));
+    }
+
+    /**
      * A grouping claim for an accessible course verifies and normalises.
      *
      * @return void

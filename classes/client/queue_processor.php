@@ -148,6 +148,7 @@ class queue_processor {
             'sent' => 0,
             'failed' => 0,
             'filtered' => 0,
+            'exhausted' => 0,
             'results' => [],
         ];
 
@@ -210,6 +211,22 @@ class queue_processor {
                 ];
                 continue;
             }
+            if ((int)($record->type ?? XAPI_IMPORT_TYPE_LIVE) === XAPI_IMPORT_TYPE_FAILED &&
+                    (int)($record->attempts ?? 0) >= XAPI_CLIENT_QUEUE_MAX_ATTEMPTS) {
+                // Retry budget spent: keep the row for inspection but stop
+                // spending LRS round-trips on it. Long-dead rows are pruned
+                // by client_emit_task.
+                $summary['processed']++;
+                $summary['exhausted']++;
+                $summary['results'][] = [
+                    'id' => $record->id,
+                    'success' => false,
+                    'exhausted' => true,
+                    'errortype' => (int)($record->errortype ?? 0),
+                    'response' => $record->response ?? '',
+                ];
+                continue;
+            }
             $recordmap[] = $record;
             $statements[] = $statement;
         }
@@ -257,8 +274,8 @@ class queue_processor {
     public static function process_queued(int $batchsize, int $type): array {
         $lock = self::get_queue_lock('client_queue_' . ((int)$type), 5);
         if (!$lock) {
-            return ['processed' => 0, 'sent' => 0, 'failed' => 0, 'filtered' => 0, 'skipped' => true,
-                'results' => []];
+            return ['processed' => 0, 'sent' => 0, 'failed' => 0, 'filtered' => 0, 'exhausted' => 0,
+                'skipped' => true, 'results' => []];
         }
 
         try {
@@ -278,8 +295,8 @@ class queue_processor {
     public static function process_records(array $records): array {
         $lock = self::get_queue_lock('client_queue_' . XAPI_IMPORT_TYPE_LIVE, 5);
         if (!$lock) {
-            return ['processed' => 0, 'sent' => 0, 'failed' => 0, 'filtered' => 0, 'skipped' => true,
-                'results' => []];
+            return ['processed' => 0, 'sent' => 0, 'failed' => 0, 'filtered' => 0, 'exhausted' => 0,
+                'skipped' => true, 'results' => []];
         }
 
         try {

@@ -62,6 +62,12 @@ define('XAPI_CLIENT_STATEMENT_OBJECT_TYPES', [
     'Activity', 'Agent', 'Group', 'StatementRef', 'SubStatement',
 ]);
 
+// Retry budget for a failed client statement: 4320 one-minute task runs
+// (3 days) before retries stop. Retention for sent-statement
+// idempotency rows, after which a duplicate re-send is harmless.
+define('XAPI_CLIENT_QUEUE_MAX_ATTEMPTS', 4320);
+define('XAPI_CLIENT_SENT_RETENTION_SECS', 90 * DAYSECS);
+
 // Type constants.
 define('XAPI_IMPORT_TYPE_LIVE', 0);
 define('XAPI_IMPORT_TYPE_HISTORIC', 1);
@@ -867,6 +873,10 @@ function logstore_xapi_queue_client_statement(array $statement, $statementjson, 
 /**
  * Extract client statements awaiting processing.
  *
+ * Ordered by attempts so rows that already burned retries (including
+ * exhausted ones past the attempt cap) sort last and cannot crowd
+ * retryable rows out of the batch window.
+ *
  * @param int $limitnum Maximum number of records.
  * @param int $type Client queue type.
  * @return array
@@ -874,7 +884,7 @@ function logstore_xapi_queue_client_statement(array $statement, $statementjson, 
 function logstore_xapi_extract_client_events($limitnum, $type) {
     global $DB;
 
-    return $DB->get_records('logstore_xapi_client_log', ['type' => $type], 'id ASC', '*', 0, $limitnum);
+    return $DB->get_records('logstore_xapi_client_log', ['type' => $type], 'attempts ASC, id ASC', '*', 0, $limitnum);
 }
 
 /**
@@ -928,4 +938,3 @@ function logstore_xapi_security_checks() {
         new \logstore_xapi\check\ssl_verification(),
     ];
 }
-
