@@ -43,6 +43,9 @@ class queue_processor {
             'lrs_endpoint' => get_config('logstore_xapi', 'endpoint') ?: '',
             'lrs_username' => get_config('logstore_xapi', 'username') ?: '',
             'lrs_password' => get_config('logstore_xapi', 'password') ?: '',
+            'lrs_auth_method' => get_config('logstore_xapi', 'authmethod') ?: 'basic',
+            'lrs_oauth2_token_endpoint' => get_config('logstore_xapi', 'oauth2tokenendpoint') ?: '',
+            'lrs_oauth2_scope' => get_config('logstore_xapi', 'oauth2scope') ?: '',
             'lrs_max_batch_size' => get_config('logstore_xapi', 'maxbatchsize') ?: 30,
             'lrs_resend_failed_batches' => get_config('logstore_xapi', 'resendfailedbatches') ?: false,
             'lrs_ssl_verification' => get_config('logstore_xapi', 'sslverification') === false ? true :

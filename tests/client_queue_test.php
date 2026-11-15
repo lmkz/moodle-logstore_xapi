@@ -103,6 +103,25 @@ final class client_queue_test extends \advanced_testcase {
     }
 
     /**
+     * Client delivery receives all LRS authentication settings.
+     *
+     * @return void
+     */
+    public function test_client_loader_config_includes_oauth2_settings(): void {
+        $this->resetAfterTest();
+
+        set_config('authmethod', 'oauth2', 'logstore_xapi');
+        set_config('oauth2tokenendpoint', 'https://identity.example.test/token', 'logstore_xapi');
+        set_config('oauth2scope', 'statements.write', 'logstore_xapi');
+
+        $config = queue_processor::get_loader_config();
+
+        $this->assertSame('oauth2', $config['lrs_auth_method']);
+        $this->assertSame('https://identity.example.test/token', $config['lrs_oauth2_token_endpoint']);
+        $this->assertSame('statements.write', $config['lrs_oauth2_scope']);
+    }
+
+    /**
      * The actor is derived from the authenticated user.
      *
      * @return void
