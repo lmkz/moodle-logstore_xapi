@@ -85,14 +85,15 @@
         },
         "name": "test_fullname"
       },
-      "language": "en"
+      "language": "en",
+      "registration": "0019364e-d2ff-5902-8174-e9b27ffb43b1"
     },
     "result": {
       "score": {
         "max": 2.0,
         "min": 0.0,
         "raw": 1.0,
-        "scaled": 0.0
+        "scaled": 0.5
       },
       "success": true
     }

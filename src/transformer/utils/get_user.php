@@ -34,6 +34,9 @@ namespace src\transformer\utils;
  * @return array
  */
 function get_user(array $config, \stdClass $user) {
+    if ((string) $user->id === '0') {
+        return get_not_logged_in_agent($config);
+    }
 
     $actor = [];
 
@@ -51,12 +54,7 @@ function get_user(array $config, \stdClass $user) {
     }
 
     // Account.
-
-    if (array_key_exists('account_homepage', $config) && !empty($config['account_homepage'])) {
-        $homepage = $config['account_homepage'];
-    } else {
-        $homepage = $config['app_url'];
-    }
+    $homepage = get_account_homepage($config);
 
     if (array_key_exists('send_username', $config) && $config['send_username'] == true) {
         $actor['account'] = [
@@ -68,8 +66,28 @@ function get_user(array $config, \stdClass $user) {
 
     // Default.
     $actor['account'] = [
-        'homePage' => $config['app_url'],
+        'homePage' => $homepage,
         'name' => strval($user->id),
     ];
     return $actor;
+}
+
+/**
+ * The agent for someone who isn't logged in: user id 0 in the event.
+ *
+ * These are logged-out visitors, such as on the site home when users don't have to log in, and
+ * CLI scripts that set no user. The account name is 0, which no user has, so the agent can't be
+ * mistaken for a user's account, whether accounts are named by user id or by username.
+ *
+ * @param array $config The transformer config settings.
+ * @return array
+ */
+function get_not_logged_in_agent(array $config) {
+    return [
+        'name' => 'Not logged in',
+        'account' => [
+            'homePage' => get_account_homepage($config),
+            'name' => '0',
+        ],
+    ];
 }

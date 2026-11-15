@@ -29,16 +29,27 @@ namespace src\transformer\utils;
 /**
  * Transformer utility for retrieving the SCORM verb.
  *
+ * Only statuses that report progress have a verb: passed, failed, completed, and incomplete
+ * (progressed). "not attempted", "unknown" and "browsed" say nothing about the learner's
+ * progress, and a SCO writes them as soon as it is launched, so they have none.
+ *
  * @param array $scormscoestracks An array of the SCORM tracks
  * @param string $lang The language of the event.
- * @return array
+ * @return ?array The verb, or null when the status has none.
  */
 function get_scorm_verb(array $scormscoestracks, string $lang) {
-    $scormstatus = null;
+    // SCORM 1.2 reports one cmi.core.lesson_status. SCORM 2004 splits it into
+    // cmi.success_status (passed/failed) and cmi.completion_status (completed); passed or failed
+    // takes precedence, as it does in SCORM 1.2's lesson_status.
+    $values = [];
     foreach ($scormscoestracks as $st) {
-        if ($st->element == 'cmi.core.lesson_status') {
-            $scormstatus = $st->value;
-        }
+        $values[$st->element] = $st->value;
+    }
+    $scormstatus = $values['cmi.core.lesson_status'] ?? null;
+    if (in_array($values['cmi.success_status'] ?? null, ['passed', 'failed'], true)) {
+        $scormstatus = $values['cmi.success_status'];
+    } else if ($scormstatus === null) {
+        $scormstatus = $values['cmi.completion_status'] ?? null;
     }
 
     switch ($scormstatus) {
@@ -56,12 +67,21 @@ function get_scorm_verb(array $scormscoestracks, string $lang) {
                     'en' => 'Passed',
                 ],
             ];
-        default:
+        case 'completed':
             return [
                 'id' => 'http://adlnet.gov/expapi/verbs/completed',
                 'display' => [
                     'en' => 'Completed',
                 ],
             ];
+        case 'incomplete':
+            return [
+                'id' => 'http://adlnet.gov/expapi/verbs/progressed',
+                'display' => [
+                    'en' => 'Progressed',
+                ],
+            ];
+        default:
+            return null;
     }
 }

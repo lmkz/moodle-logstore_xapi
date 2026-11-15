@@ -14,10 +14,10 @@
       }
     },
     "object": {
-      "id": "http://www.example.org/review.php?attempt=1&slot=1",
+      "id": "http://www.example.org/review.php?attempt=1&slot=2",
       "definition": {
         "name": {
-          "en": "test_quiz_name Review Slot 1"
+          "en": "test_quiz_name Review Slot 2"
         },
         "type": "http://activitystrea.ms/schema/1.0/review#slot"
       },
@@ -105,14 +105,15 @@
         },
         "name": "test_instructor_fullname"
       },
-      "language": "en"
+      "language": "en",
+      "registration": "89fdb5f6-c98d-54d1-8a37-bb602c90a9ef"
     },
     "result": {
       "score": {
-        "max": 1,
+        "max": 10,
         "min": 0,
-        "raw": 0.5,
-        "scaled": 0.0
+        "raw": 5,
+        "scaled": 0.5
       }
     }
   }

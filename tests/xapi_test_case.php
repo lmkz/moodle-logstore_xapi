@@ -20,7 +20,11 @@ defined('MOODLE_INTERNAL') || die();
 
 global $CFG;
 
-require_once($CFG->dirroot . '/admin/tool/log/store/xapi/vendor/autoload.php');
+// The statement validator is a Composer dev dependency. Without `composer install` the event
+// tests still run, and only the schema check is skipped (see test_create_event()).
+if (file_exists($CFG->dirroot . '/admin/tool/log/store/xapi/vendor/autoload.php')) {
+    require_once($CFG->dirroot . '/admin/tool/log/store/xapi/vendor/autoload.php');
+}
 require_once($CFG->dirroot . '/admin/tool/log/store/xapi/src/autoload.php');
 
 foreach (glob($CFG->dirroot . '/admin/tool/log/store/xapi/tests/utils/*.php') as $filename) {
@@ -90,6 +94,9 @@ abstract class xapi_test_case extends \advanced_testcase {
     /**
      * Retrieve the expected statement from statements.json.
      *
+     * A null in statements.json means the property must be absent, so a test can drop a
+     * property that tests/common/statement.json would otherwise add.
+     *
      * @return array
      */
     protected function get_expected_statements() {
@@ -99,8 +106,25 @@ abstract class xapi_test_case extends \advanced_testcase {
         $commonstatement = json_decode(file_get_contents($CFG->dirroot . '/admin/tool/log/store/xapi/tests/common/statement.json'));
         return array_map(function ($statement) use ($commonstatement) {
             // Add common expectations for all statements.
-            return utils\deep_merge_objects($commonstatement, $statement);
+            return $this->remove_null_properties(utils\deep_merge_objects($commonstatement, $statement));
         }, json_decode(file_get_contents($this->get_test_dir() . '/statements.json')));
+    }
+
+    /**
+     * Recursively remove properties whose value is null.
+     *
+     * @param \stdClass $object The expected statement, or part of it.
+     * @return \stdClass
+     */
+    private function remove_null_properties(\stdClass $object): \stdClass {
+        foreach (get_object_vars($object) as $property => $value) {
+            if ($value === null) {
+                unset($object->$property);
+            } else if ($value instanceof \stdClass) {
+                $object->$property = $this->remove_null_properties($value);
+            }
+        }
+        return $object;
     }
 
     /**
@@ -133,10 +157,39 @@ abstract class xapi_test_case extends \advanced_testcase {
             $eventstatements = $loadedevent['statements'];
             return array_merge($result, $eventstatements);
         }, []);
+        $statements = $this->remove_statement_ids($statements);
         $this->assert_expected_statements($statements);
+        foreach ($statements as $statement) {
+            $this->assert_consistent_with_definition($statement);
+        }
+        if (!class_exists(LockerStatement::class)) {
+            $this->markTestSkipped('The xAPI statement validator is not installed; run composer install in the plugin');
+        }
         foreach ($statements as $statement) {
             $this->assert_valid_xapi_statement($statement);
         }
+    }
+
+    /**
+     * Check that each statement has its own version 5 UUID as id, then remove the ids.
+     *
+     * The ids come from the statements' content (see utils\set_statement_ids()), so
+     * statements.json leaves them out; statement_ids_test covers how they are made.
+     *
+     * @param array $statements The statements.
+     * @return array The statements without ids.
+     */
+    private function remove_statement_ids(array $statements): array {
+        $ids = array_column($statements, 'id');
+        $this->assertCount(count($statements), $ids, 'Every statement must have an id');
+        $this->assertSame($ids, array_unique($ids), 'Statement ids must be unique');
+        foreach ($ids as $id) {
+            $this->assertMatchesRegularExpression('/^[0-9a-f]{8}-[0-9a-f]{4}-5[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/', $id);
+        }
+        return array_map(function ($statement) {
+            unset($statement['id']);
+            return $statement;
+        }, $statements);
     }
 
     /**
@@ -154,11 +207,10 @@ abstract class xapi_test_case extends \advanced_testcase {
             'send_mbox' => false,
             'send_name' => true,
             'account_homepage' => 'http://www.example.org',
-            'send_response_choices' => false,
+            'send_response_choices' => true,
             'send_short_course_id' => false,
             'send_course_and_module_idnumber' => false,
             'send_username' => false,
-            'session_id' => 'test_session_id',
             'plugin_url' => 'https://github.com/xAPI-vle/moodle-logstore_xapi',
             'plugin_version' => '0.0.0-development',
             'repo' => new \src\transformer\repos\TestRepository($testdata),
@@ -178,6 +230,71 @@ abstract class xapi_test_case extends \advanced_testcase {
             return (string) $error;
         }, $errors));
         $this->assertEmpty($errors, $errorsjson);
+    }
+
+    /**
+     * Assert the rules the schema validator does not check: responses and correct response
+     * patterns must use the ids the interaction defines, true-false values must be "true" or
+     * "false", and a score must fit its own bounds.
+     *
+     * @param array $statement The xAPI statement.
+     * @return void
+     */
+    private function assert_consistent_with_definition(array $statement) {
+        $definition = $statement['object']['definition'] ?? [];
+        $result = $statement['result'] ?? [];
+        $values = [];
+        if (isset($result['response'])) {
+            $values['result.response'] = $result['response'];
+        }
+        foreach ($definition['correctResponsesPattern'] ?? [] as $i => $pattern) {
+            $values["correctResponsesPattern[$i]"] = $pattern;
+        }
+
+        $ids = function ($key) use ($definition) {
+            return array_column($definition[$key] ?? [], 'id');
+        };
+        foreach ($values as $where => $value) {
+            if ($value === '') {
+                continue;
+            }
+            switch ($definition['interactionType'] ?? '') {
+                case 'true-false':
+                    $this->assertContains($value, ['true', 'false'], "$where must be true or false");
+                    break;
+                case 'choice':
+                case 'sequencing':
+                    if ($choices = $ids('choices')) {
+                        foreach (explode('[,]', $value) as $id) {
+                            $this->assertContains($id, $choices, "$where uses an id that is not a defined choice");
+                        }
+                    }
+                    break;
+                case 'matching':
+                    $source = $ids('source');
+                    $target = $ids('target');
+                    if ($source && $target) {
+                        foreach (explode('[,]', $value) as $pair) {
+                            [$s, $t] = array_pad(explode('[.]', $pair, 2), 2, null);
+                            $this->assertContains($s, $source, "$where uses an id that is not a defined source");
+                            $this->assertContains($t, $target, "$where uses an id that is not a defined target");
+                        }
+                    }
+                    break;
+            }
+        }
+
+        $score = $result['score'] ?? [];
+        if (isset($score['scaled'])) {
+            $this->assertGreaterThanOrEqual(-1, $score['scaled'], 'score.scaled must be at least -1');
+            $this->assertLessThanOrEqual(1, $score['scaled'], 'score.scaled must be at most 1');
+        }
+        if (isset($score['raw'], $score['min'])) {
+            $this->assertGreaterThanOrEqual($score['min'], $score['raw'], 'score.raw must not be below score.min');
+        }
+        if (isset($score['raw'], $score['max'])) {
+            $this->assertLessThanOrEqual($score['max'], $score['raw'], 'score.raw must not exceed score.max');
+        }
     }
 
     /**

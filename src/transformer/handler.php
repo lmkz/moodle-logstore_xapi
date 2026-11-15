@@ -54,6 +54,12 @@ function handler(array $config, array $events) {
                     $eventobj,
                     $eventfunction($eventconfig, $eventobj)
                 );
+                // Core flags an event as anonymous when a user's identity must stay hidden.
+                if (!empty($eventobj->anonymous)) {
+                    $eventstatements = utils\anonymise_statements($eventconfig, $eventobj, $eventstatements);
+                }
+                // Last, so the ids come from the statements as they are sent.
+                $eventstatements = utils\set_statement_ids($eventconfig, $eventobj, $eventstatements);
             } else {
                 $eventstatements = [];
             }
@@ -65,13 +71,17 @@ function handler(array $config, array $events) {
                 'transformed' => true,
             ];
             return $transformedevent;
-        } catch (\Exception $e) {
+        } catch (\Throwable $e) {
+            // Throwable, not Exception, so a PHP Error in one transformer fails only that event.
             $logerror = $config['log_error'];
+            $loginfo = $config['log_info'];
             $id = property_exists($eventobj, 'id') ? $eventobj->id : ' (id not present on event object) ';
             $errormessage = "Failed transform for event id #" . $id . ": " . $e->getMessage();
             $logerror($errormessage);
-            $logerror($e->getTraceAsString());
-            $eventobj->response = json_encode(['transfromerror' => $errormessage]);
+            $loginfo($e->getTraceAsString());
+            // The stored response leaves out the event id (it has its own column), so the same
+            // error in many events is one option in the error report's response filter.
+            $eventobj->response = json_encode(['transfromerror' => 'Failed transform: ' . $e->getMessage()]);
 
             // Returns unsuccessfully transformed event without statements.
             $transformedevent = [

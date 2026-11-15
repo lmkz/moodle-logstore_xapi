@@ -70,7 +70,11 @@ function textfield(
             ),
         ],
         'result' => [
-            'response' => $feedbackvalue->value,
+            // Core stores the answer HTML-escaped, through s(). The text is content, and is never
+            // sent from anonymous feedback, where it can say who wrote it.
+            ...((utils\is_sending_content($config) && empty($event->anonymous))
+                ? ['response' => htmlspecialchars_decode($feedbackvalue->value, ENT_QUOTES | ENT_HTML401)]
+                : []),
             'completion' => $feedbackvalue->value !== '',
         ],
         'context' => [

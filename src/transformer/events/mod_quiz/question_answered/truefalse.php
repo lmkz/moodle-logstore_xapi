@@ -46,6 +46,18 @@ function truefalse(array $config, \stdClass $event, \stdClass $questionattempt, 
     $quiz = $repo->read_record_by_id('quiz', $attempt->quiz);
     $coursemodule = $repo->read_record_by_id('course_modules', $event->contextinstanceid);
     $lang = utils\get_course_lang($course);
+
+    // The xAPI spec allows only "true" or "false" as a true-false response. The response summary is the
+    // translated label ("Vrai", "正しい"), so the response is read from the attempt's steps, where
+    // the question engine saves 1 for true and 0 for false.
+    $answer = utils\quiz_question\get_last_step_value(
+        utils\quiz_question\get_question_attempt_step_data($config, $questionattempt),
+        'answer'
+    );
+    $answered = $answer === '0' || $answer === '1';
+    $response = $answer === '1';
+    $success = utils\quiz_question\get_question_attempt_success($config, $questionattempt, $event);
+
     return [[
         'actor' => utils\get_user($config, $user),
         'verb' => [
@@ -60,15 +72,15 @@ function truefalse(array $config, \stdClass $event, \stdClass $questionattempt, 
             'definition' => question\get_true_false_definition($config, $question, $lang),
         ],
         'result' => [
-            'response' => utils\slugify(
-                utils\get_string_html_removed($questionattempt->responsesummary)
-            ),
-            'completion' => $questionattempt->responsesummary !== null,
-            'success' => $questionattempt->rightanswer === $questionattempt->responsesummary,
-            'extensions' => [
-                'http://learninglocker.net/xapi/cmi/true-false/response' => $questionattempt->responsesummary ===
-                    'True',
-            ],
+            // An unanswered question has no response to report.
+            ...($answered ? ['response' => $response ? 'true' : 'false'] : []),
+            'completion' => $answered,
+            ...(is_null($success) ? [] : ['success' => $success]),
+            ...($answered ? [
+                'extensions' => [
+                    'http://learninglocker.net/xapi/cmi/true-false/response' => $response,
+                ],
+            ] : []),
         ],
         'context' => [
             ...utils\get_context_base($config, $event, $lang, $course),

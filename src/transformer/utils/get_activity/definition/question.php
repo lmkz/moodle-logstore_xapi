@@ -47,118 +47,176 @@ function get_essay_definition(array $config, \stdClass $question, string $lang) 
 }
 
 /**
- * Transformer util for creating multichoice definitions.
+ * The choices of a multiple-choice question: the text of each answer, keyed by answer id.
  *
- * @param array $config The transformer config settings.
- * @param \stdClass $question The question object.
- * @param string $lang The language.
- * @param ?string $interactiontype The type of interaction.
- * @param ?string $rightanswer The correct answer, not always available.
+ * Responses take their ids from these, through cmi\get_choice_ids(), as the definition does.
+ *
+ * @param array $answers The question's answers, from question_answers in id order.
  * @return array
  */
-function get_multichoice_definition(
-    array $config,
-    \stdClass $question,
-    string $lang,
-    ?string $interactiontype = 'choice',
-    ?string $rightanswer = null
-) {
-    $repo = $config['repo'];
-    $answers = $repo->read_records('question_answers', [
-        'question' => $question->id,
-    ]);
-
-    $choices = array_values(
-        array_map(
-            function ($answer) {
-                return utils\get_string_html_removed($answer->answer);
-            },
-            $answers
-        )
-    );
-
-    if ($interactiontype === 'sequencing') {
-        return cmi\sequencing(
-            $config,
-            $question->name,
-            utils\get_string_html_removed($question->questiontext),
-            $choices,
-            $lang,
-            (!is_null($rightanswer))
-                ? explode('} {', trim($rightanswer, '{}'))
-                : null
-        );
-    } else {
-        return cmi\choice(
-            $config,
-            $question->name,
-            utils\get_string_html_removed($question->questiontext),
-            $choices,
-            $lang,
-            (!is_null($rightanswer))
-                ? explode('; ', utils\get_string_html_removed($rightanswer))
-                : null
-        );
-    }
+function get_multichoice_choices(array $answers): array {
+    return array_map(function ($answer) {
+        return utils\get_string_html_removed($answer->answer);
+    }, $answers);
 }
 
-
 /**
- * Transformer util for creating match definitions
+ * Transformer util for creating multichoice definitions.
+ *
+ * The correct responses come from the answers' grades, as the question engine's own correct
+ * response does. In a single-answer question each answer with full marks is right on its own; in
+ * a multiple-answer question (and qtype_multichoiceset) every answer with a positive grade must
+ * be chosen, together.
  *
  * @param array $config The transformer config settings.
  * @param \stdClass $question The question object.
  * @param string $lang The language.
+ * @return array
  */
-function get_match_definition(array $config, \stdClass $question, string $lang) {
+function get_multichoice_definition(array $config, \stdClass $question, string $lang) {
     $repo = $config['repo'];
-    $subqs = $repo->read_records('qtype_match_subquestions', [
-        'questionid' => $question->id,
-    ]);
+    $answers = $repo->read_records('question_answers', ['question' => $question->id], 'id ASC');
 
-    $source = [];
-    $target = [];
+    $single = false;
+    if ($question->qtype === 'multichoice') {
+        $options = $repo->read_records('qtype_multichoice_options', ['questionid' => $question->id]);
+        $option = reset($options);
+        $single = !$option || !empty($option->single);
+    }
 
-    foreach ($subqs as $subq) {
-        $source[] = utils\get_string_html_removed($subq->questiontext);
-        $target[] = $subq->answertext;
+    if ($single) {
+        $correctresponses = array_map(function ($answerid) {
+            return [$answerid];
+        }, array_keys(array_filter($answers, function ($answer) {
+            return (float) $answer->fraction >= 1.0;
+        })));
+    } else {
+        $correctresponses = [array_keys(array_filter($answers, function ($answer) {
+            return (float) $answer->fraction > 0;
+        }))];
+    }
+
+    return cmi\choice(
+        $config,
+        $question->name,
+        utils\get_string_html_removed($question->questiontext),
+        get_multichoice_choices($answers),
+        $lang,
+        $correctresponses
+    );
+}
+
+/**
+ * Transformer util for creating matching (match and randomsamatch) definitions.
+ *
+ * With an attempt, the stems and choices are the ones it showed, in the order it showed them;
+ * randomsamatch draws its stems per attempt, so only the attempt has them. Without one (a
+ * question created in the question bank), match questions use their subquestions and
+ * randomsamatch questions have no stems to list.
+ *
+ * @param array $config The transformer config settings.
+ * @param \stdClass $question The question object.
+ * @param string $lang The language.
+ * @param ?array $attempt The attempt, from quiz_question\get_matching_attempt(), if there is one.
+ * @return array
+ */
+function get_match_definition(array $config, \stdClass $question, string $lang, ?array $attempt = null) {
+    if (is_null($attempt)) {
+        $attempt = $question->qtype === 'randomsamatch'
+            ? ['stems' => [], 'choices' => [], 'right' => []]
+            : utils\quiz_question\get_match_subquestions($config, $question);
+    }
+
+    $pairs = [];
+    foreach ($attempt['right'] as $stemkey => $choicekey) {
+        if (isset($attempt['stems'][$stemkey], $attempt['choices'][$choicekey])) {
+            $pairs[] = [$attempt['stems'][$stemkey], $attempt['choices'][$choicekey]];
+        }
     }
 
     return cmi\matching(
         $config,
         $question->name,
         utils\get_string_html_removed($question->questiontext),
-        $source,
-        $target,
+        array_values($attempt['stems']),
+        array_values($attempt['choices']),
+        $pairs,
         $lang
     );
 }
 
 /**
- * Transformer util for creating numerical definitions
+ * Transformer util for creating select missing words (gapselect) definitions.
+ *
+ * Each gap is a source and each choice a target. A choice can be right for several gaps and a
+ * group can have distractors, so this is a matching interaction rather than a sequence. In the
+ * question text, [[n]] is a gap whose right answer is the question's nth answer.
+ *
+ * @param array $config The transformer config settings.
+ * @param \stdClass $question The question object.
+ * @param string $lang The language.
+ * @return array
+ */
+function get_gapselect_definition(array $config, \stdClass $question, string $lang) {
+    $answers = array_values($config['repo']->read_records('question_answers', [
+        'question' => $question->id,
+    ], 'id ASC'));
+    $choices = array_map(function ($answer) {
+        return utils\get_string_html_removed($answer->answer);
+    }, $answers);
+
+    preg_match_all('/\[\[(\d+)\]\]/', $question->questiontext, $matches);
+    $gaps = [];
+    $pairs = [];
+    foreach ($matches[1] as $i => $choicenumber) {
+        $gap = get_gap_name($i + 1);
+        $gaps[] = $gap;
+        $pairs[] = [$gap, $choices[$choicenumber - 1] ?? ''];
+    }
+
+    return cmi\matching(
+        $config,
+        $question->name,
+        utils\get_string_html_removed($question->questiontext),
+        $gaps,
+        $choices,
+        $pairs,
+        $lang
+    );
+}
+
+/**
+ * The name of a gap in a select missing words question, which is also its source id.
+ *
+ * @param int $number The gap's position in the question text, from 1.
+ * @return string
+ */
+function get_gap_name(int $number): string {
+    return 'Gap ' . $number;
+}
+
+/**
+ * Transformer util for creating numerical definitions. Each answer with full marks is a correct
+ * response.
  *
  * @param array $config The transformer config settings.
  * @param \stdClass $question The question object.
  * @param string $lang The language.
  */
 function get_numerical_definition(array $config, \stdClass $question, string $lang) {
-    [
-        'min' => $min,
-        'max' => $max,
-        'target' => $target
-    ] = utils\quiz_question\get_numerical_answer($config, $question->id);
-
     return cmi\numeric(
         $config,
         $question->name,
         utils\get_string_html_removed($question->questiontext),
-        $min,
-        $max,
         $lang,
-        // If we have an exact match, send that.
-        ($min === $target && $max === $target)
-            ? $target
-            : null
+        array_map(function ($range) {
+            return cmi\numeric_pattern(
+                $range['min'],
+                $range['max'],
+                // If we have an exact match, send that.
+                ($range['min'] === $range['target'] && $range['max'] === $range['target']) ? $range['target'] : null
+            );
+        }, utils\quiz_question\get_numerical_answers($config, $question->id))
     );
 }
 
@@ -179,30 +237,39 @@ function get_shortanswer_definition(array $config, \stdClass $question, string $
 }
 
 /**
+ * Whether "true" is the correct answer to a true/false question.
+ *
+ * The answer texts are stored in the language the question was created in ("Vrai", "正しい"),
+ * so they cannot be compared with 'True'. question_truefalse records which answer is the
+ * true choice; the answer with full marks is the correct one.
+ *
+ * @param array $config The transformer config settings.
+ * @param \stdClass $question The question object.
+ * @return bool
+ */
+function get_true_false_correct_answer(array $config, \stdClass $question): bool {
+    $repo = $config['repo'];
+    $answers = $repo->read_records('question_answers', [
+        'question' => $question->id,
+    ]);
+    $correctanswers = array_filter($answers, function ($answer) {
+        return $answer->fraction == 1.0;
+    });
+    $correctanswer = reset($correctanswers);
+    $options = $repo->read_record('question_truefalse', ['question' => $question->id]);
+    return $correctanswer && $correctanswer->id == $options->trueanswer;
+}
+
+/**
  * Transformer util for creating true/false definitions
  *
  * @param array $config The transformer config settings.
  * @param \stdClass $question The question object.
  * @param string $lang The language.
+ * @return array
  */
 function get_true_false_definition(array $config, \stdClass $question, string $lang) {
-    $repo = $config['repo'];
-    $answers = $repo->read_records('question_answers', [
-        'question' => $question->id,
-    ]);
-    $correctanswerobjarr = array_filter(
-        $answers,
-        function ($answer) {
-            return $answer->fraction == 1.0;
-        }
-    );
-    $correctanswerobj = reset(
-        $correctanswerobjarr
-    );
-
-    $correctanswer = ($correctanswerobj->answer === 'True')
-        ? true
-        : false;
+    $correctanswer = get_true_false_correct_answer($config, $question);
 
     return cmi\true_false(
         $config,
@@ -226,12 +293,7 @@ function get_definition(array $config, \stdClass $question, string $lang) {
         case 'essay':
             return get_essay_definition($config, $question, $lang);
         case 'gapselect':
-            return get_multichoice_definition(
-                $config,
-                $question,
-                $lang,
-                'sequencing'
-            );
+            return get_gapselect_definition($config, $question, $lang);
         case 'truefalse':
             return get_true_false_definition($config, $question, $lang);
         case 'randomsamatch':
@@ -241,12 +303,7 @@ function get_definition(array $config, \stdClass $question, string $lang) {
             return get_shortanswer_definition($config, $question, $lang);
         case 'multichoice':
         case 'multichoiceset':
-            return get_multichoice_definition(
-                $config,
-                $question,
-                $lang,
-                'choice'
-            );
+            return get_multichoice_definition($config, $question, $lang);
         case 'numerical':
             return get_numerical_definition($config, $question, $lang);
         default:

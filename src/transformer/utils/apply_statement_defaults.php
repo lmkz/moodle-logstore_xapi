@@ -33,11 +33,17 @@ namespace src\transformer\utils;
  * @return array
  */
 function apply_statement_defaults(array $config, \stdClass $event, array $statements) {
-    return array_map(function ($statement) use ($config, $event) {
+    if (empty($statements)) {
+        return [];
+    }
+    // A registration only for events about an attempt (see get_registration()). Moodle has no
+    // session-wide registration.
+    $registration = get_registration($config, $event);
+    return array_map(function ($statement) use ($config, $event, $registration) {
         $defaultstatement = [
             'context' => [
                 'platform' => $config['context_platform'] ?? 'Moodle',
-                'registration' => stringToUuidV5($config['session_id']),
+                ...(is_null($registration) ? [] : ['registration' => $registration]),
             ],
             'timestamp' => get_event_timestamp($event),
         ];

@@ -46,6 +46,9 @@ function shortanswer(array $config, \stdClass $event, \stdClass $questionattempt
     $quiz = $repo->read_record_by_id('quiz', $attempt->quiz);
     $coursemodule = $repo->read_record_by_id('course_modules', $event->contextinstanceid);
     $lang = utils\get_course_lang($course);
+    // Moodle stores NULL for a question the learner didn't answer.
+    $responsesummary = $questionattempt->responsesummary ?? '';
+    $success = utils\quiz_question\get_question_attempt_success($config, $questionattempt, $event);
 
     return [[
         'actor' => utils\get_user($config, $user),
@@ -61,8 +64,10 @@ function shortanswer(array $config, \stdClass $event, \stdClass $questionattempt
             'definition' => question\get_shortanswer_definition($config, $question, $lang),
         ],
         'result' => [
-            'response' => $questionattempt->responsesummary,
-            'completion' => $questionattempt->responsesummary !== '',
+            // The answer is free text, which "Send content" leaves out.
+            ...(utils\is_sending_content($config) ? ['response' => $responsesummary] : []),
+            'completion' => $responsesummary !== '',
+            ...(is_null($success) ? [] : ['success' => $success]),
         ],
         'context' => [
             ...utils\get_context_base($config, $event, $lang, $course),

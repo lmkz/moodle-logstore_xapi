@@ -33,14 +33,7 @@ use src\transformer\utils;
  * @return array
  */
 function badge_awarded(array $config, \stdClass $event) {
-    global $CFG;
     $repo = $config['repo'];
-
-    if (isset($event->objecttable) && isset($event->objectid)) {
-        $eventobject = $repo->read_record_by_id($event->objecttable, $event->objectid);
-    } else {
-        $eventobject = [];
-    }
 
     $recipient = $repo->read_record_by_id('user', $event->relateduserid);
     $actor = utils\get_user($config, $recipient);
@@ -48,16 +41,20 @@ function badge_awarded(array $config, \stdClass $event) {
     $badge = $repo->read_record_by_id('badge', $event->objectid);
     $course = $badge->courseid ? $repo->read_record_by_id('course', $badge->courseid) : null;
 
-    $lang = $badge->language ??
-      ((!(is_null($course))) ?
-       utils\get_course_lang($course) :
-       $config['source_lang']);
+    // The badge's language is a Moodle code such as pt_br, and may be empty.
+    $lang = utils\get_lang_tag(
+        $badge->language ?? null,
+        !is_null($course) ? utils\get_course_lang($course) : $config['source_lang']
+    );
 
-    $other = utils\decode_other($event->other);
-    $issuedid = $other['badgeissuedid'];
+    // The event's badgeissuedid points at badge_issued, not badge_manual_award, so find
+    // the manual award (if any) by badge and recipient. Automatic awards have none.
+    $manuals = $repo->read_records('badge_manual_award', [
+        'badgeid' => $badge->id,
+        'recipientid' => $event->relateduserid,
+    ], 'datemet DESC');
+    $manual = $manuals ? reset($manuals) : null;
 
-    $manual = $repo->read_record_by_id('badge_manual_award', $issuedid);
-    $awarder = $manual ? (utils\get_user($config, $repo->read_record_by_id('user', $manual->issuerid))) : 'System';
     $statement = [
         [
             'actor' => $actor,
@@ -68,12 +65,8 @@ function badge_awarded(array $config, \stdClass $event) {
                 ],
             ],
             'object' => utils\get_activity\badge($config, $lang, $badge),
-            'result' => [
-                'response' => $badge->message,
-            ],
             'context' => [
                 ...utils\get_context_base($config, $event, $lang, $course),
-                'instructor' => $awarder,
                 'contextActivities' => [
                     'category' => [
                         utils\get_activity\site($config),
@@ -89,13 +82,20 @@ function badge_awarded(array $config, \stdClass $event) {
             ],
         ],
     ];
+    // The instructor must be an xAPI Agent, so it is only set for manual awards.
+    if ($manual) {
+        $statement[0]['context']['instructor'] = utils\get_user(
+            $config,
+            $repo->read_record_by_id('user', $manual->issuerid)
+        );
+    }
     if ($course) {
         $statement[0]['context']['contextActivities']['parent'] = [[
             'id' => $config['app_url'] . '/course/view.php?id=' . $course->id,
             'objectType' => 'Activity',
             'definition' => [
                 'name' => [$lang => $course->fullname],
-                'description' => [$lang => $course->summary],
+                'description' => [$lang => utils\get_string_html_removed($course->summary)],
                 'type' => 'https://w3id.org/xapi/cmi5/activitytype/course',
             ],
         ]];

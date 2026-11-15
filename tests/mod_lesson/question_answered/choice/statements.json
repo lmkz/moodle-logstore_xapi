@@ -18,26 +18,27 @@
       "definition": {
         "choices": [
           {
-            "id": "a",
+            "id": "option-a",
             "description": {
-              "en": "a"
+              "en": "Option A"
             }
           },
           {
-            "id": "b",
+            "id": "option-b",
             "description": {
-              "en": "b"
+              "en": "Option B"
             }
           },
           {
-            "id": "c",
+            "id": "option-c",
             "description": {
-              "en": "c"
+              "en": "Option C"
             }
           }
         ],
         "correctResponsesPattern": [
-          "a[,]b"
+          "option-a",
+          "option-b"
         ],
         "description": {
           "en": "lesson_question_page_contents"
@@ -105,10 +106,11 @@
           "https://github.com/xAPI-vle/moodle-logstore_xapi": "0.0.0-development"
         }
       },
-      "language": "en"
+      "language": "en",
+      "registration": "64bd2b1a-f742-5552-8718-bd20690257f3"
     },
     "result": {
-      "response": "a",
+      "response": "option-a",
       "success": true
     }
   }

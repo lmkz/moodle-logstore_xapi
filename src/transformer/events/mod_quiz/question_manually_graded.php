@@ -48,7 +48,10 @@ function question_manually_graded(array $config, \stdClass $event) {
     $user = $repo->read_record_by_id('user', $attempt->userid);
     $questionattempts = $repo->read_records(
         'question_attempts',
-        ['questionusageid' => (int) $attempt->uniqueid],
+        [
+            'questionusageid' => (int) $attempt->uniqueid,
+            'slot' => (int) $slot,
+        ],
     );
     if (empty($questionattempts)) {
         return [];
@@ -63,9 +66,12 @@ function question_manually_graded(array $config, \stdClass $event) {
         return [];
     }
     $step = reset($questionattemptsteps);
-    $rawscore = (float) ($step->fraction ?? 0);
-    $minscore = (float) ($questionattempt->minfraction ?? 0);
-    $maxscore = (float) ($questionattempt->maxfraction ?? 0);
+    // Steps store the grade as a fraction; the question is worth maxmark marks, and the attempt's
+    // score is in marks too.
+    $maxmark = (float) ($questionattempt->maxmark ?? 0);
+    $rawscore = (float) ($step->fraction ?? 0) * $maxmark;
+    $minscore = (float) ($questionattempt->minfraction ?? 0) * $maxmark;
+    $maxscore = (float) ($questionattempt->maxfraction ?? 0) * $maxmark;
 
     return [[
         'actor' => utils\get_user($config, $user),
@@ -83,12 +89,7 @@ function question_manually_graded(array $config, \stdClass $event) {
             ],
         ],
         'result' => [
-            'score' => [
-                'min' => $minscore,
-                'max' => $maxscore,
-                'raw' => $rawscore,
-                'scaled' => utils\get_scaled_score($rawscore, $minscore, $maxscore),
-            ],
+            'score' => utils\get_score($rawscore, $minscore, $maxscore),
         ],
         'context' => [
             ...utils\get_context_base($config, $event, $lang, $course),

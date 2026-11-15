@@ -69,10 +69,21 @@ if ($hassiteconfig) {
         60
     ));
 
+    $settings->add(new admin_setting_configselect(
+        'logstore_xapi/authmethod',
+        get_string('authmethod', 'logstore_xapi'),
+        get_string('authmethod_desc', 'logstore_xapi'),
+        'basic',
+        [
+            'basic' => get_string('authmethod_basic', 'logstore_xapi'),
+            'oauth2' => get_string('authmethod_oauth2', 'logstore_xapi'),
+        ]
+    ));
+
     $settings->add(new admin_setting_configtext(
         'logstore_xapi/username',
         get_string('username', 'logstore_xapi'),
-        '',
+        get_string('username_desc', 'logstore_xapi'),
         '',
         PARAM_TEXT,
         40
@@ -81,11 +92,31 @@ if ($hassiteconfig) {
     $passwordsetting = new admin_setting_configpasswordunmask(
         'logstore_xapi/password',
         get_string('password', 'logstore_xapi'),
-        '',
+        get_string('password_desc', 'logstore_xapi'),
         ''
     );
     $passwordsetting->size = 40;
     $settings->add($passwordsetting);
+
+    $settings->add(new admin_setting_configtext(
+        'logstore_xapi/oauth2tokenendpoint',
+        get_string('oauth2tokenendpoint', 'logstore_xapi'),
+        get_string('oauth2tokenendpoint_desc', 'logstore_xapi'),
+        '',
+        PARAM_URL,
+        60
+    ));
+    $settings->hide_if('logstore_xapi/oauth2tokenendpoint', 'logstore_xapi/authmethod', 'neq', 'oauth2');
+
+    $settings->add(new admin_setting_configtext(
+        'logstore_xapi/oauth2scope',
+        get_string('oauth2scope', 'logstore_xapi'),
+        get_string('oauth2scope_desc', 'logstore_xapi'),
+        '',
+        PARAM_TEXT,
+        40
+    ));
+    $settings->hide_if('logstore_xapi/oauth2scope', 'logstore_xapi/authmethod', 'neq', 'oauth2');
 
     $settings->add(new admin_setting_configcheckbox(
         'logstore_xapi/sslverification',
@@ -139,11 +170,32 @@ if ($hassiteconfig) {
         PARAM_INT
     ));
 
+    $settings->add(new admin_setting_configduration(
+        'logstore_xapi/maxruntime',
+        get_string('maxruntime', 'logstore_xapi'),
+        get_string('maxruntime_desc', 'logstore_xapi'),
+        XAPI_MAX_RUNTIME_DEFAULT,
+        MINSECS
+    ));
+
     $settings->add(new admin_setting_configcheckbox(
         'logstore_xapi/resendfailedbatches',
         get_string('resendfailedbatches', 'logstore_xapi'),
         get_string('resendfailedbatches_desc', 'logstore_xapi'),
         0
+    ));
+
+    // The same choices as the standard log's "Keep logs for".
+    $lifetimes = [0 => new lang_string('neverdeletelogs')];
+    foreach ([1000, 365, 180, 150, 120, 90, 60, 35, 10, 5, 2] as $days) {
+        $lifetimes[$days] = new lang_string('numdays', '', $days);
+    }
+    $settings->add(new admin_setting_configselect(
+        'logstore_xapi/failedloglifetime',
+        get_string('failedloglifetime', 'logstore_xapi'),
+        get_string('failedloglifetime_desc', 'logstore_xapi'),
+        0,
+        $lifetimes
     ));
 
     // Actor identification.
@@ -179,7 +231,20 @@ if ($hassiteconfig) {
         get_string('account_homepage', 'logstore_xapi'),
         get_string('account_homepage_desc', 'logstore_xapi'),
         $CFG->wwwroot,
-        PARAM_TEXT
+        // An actor account's homePage must be an IRL, so an absolute URL with a scheme (PARAM_URL
+        // also accepts "www.example.org"). Empty falls back to the site URL.
+        '/^$|^[a-zA-Z][a-zA-Z0-9+.-]*:\/\/\S+$/'
+    ));
+
+    $settings->add(new admin_setting_configselect(
+        'logstore_xapi/anonymousevents',
+        get_string('anonymousevents', 'logstore_xapi'),
+        get_string('anonymousevents_desc', 'logstore_xapi'),
+        XAPI_ANONYMOUS_EVENTS_ANONYMISE,
+        [
+            XAPI_ANONYMOUS_EVENTS_ANONYMISE => get_string('anonymousevents_anonymise', 'logstore_xapi'),
+            XAPI_ANONYMOUS_EVENTS_SKIP => get_string('anonymousevents_skip', 'logstore_xapi'),
+        ]
     ));
 
     // Statement content.
@@ -216,6 +281,13 @@ if ($hassiteconfig) {
         get_string('send_response_choices', 'logstore_xapi'),
         get_string('send_response_choices_desc', 'logstore_xapi'),
         0
+    ));
+
+    $settings->add(new admin_setting_configcheckbox(
+        'logstore_xapi/sendcontent',
+        get_string('send_content', 'logstore_xapi'),
+        get_string('send_content_desc', 'logstore_xapi'),
+        1
     ));
 
     $settings->add(new admin_setting_configcheckbox(
@@ -314,8 +386,8 @@ if ($hassiteconfig) {
     $settings->add(new \logstore_xapi\admin_setting_configroutes(
         'logstore_xapi/routes',
         get_string('routes', 'logstore_xapi'),
-        '',
-        $menuroutes,
+        get_string('routes_desc', 'logstore_xapi'),
+        logstore_xapi_get_default_routes(array_keys($menuroutes)),
         $menuroutes
     ));
 

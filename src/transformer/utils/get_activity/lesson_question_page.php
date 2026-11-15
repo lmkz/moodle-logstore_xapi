@@ -47,19 +47,27 @@ function lesson_question_page(array $config, \stdClass $course, \stdClass $lesso
         'id' => $entryurl,
     ];
 
-    $answers = $repo->read_records('lesson_answers', ['pageid' => $page->id]);
-    $correctanswers = array_filter($answers, function ($a) {
-        return ($a->score > 0);
+    $answers = $repo->read_records('lesson_answers', ['pageid' => $page->id], 'id ASC');
+    $correctanswers = array_filter($answers, function ($a) use ($config, $lesson, $page) {
+        return utils\is_lesson_answer_correct($config, $lesson, $page, $a);
     });
 
     switch ($page->qtype) {
         case 1: // LESSON_PAGE_SHORTANSWER.
-            $correctresponses = array_values(
-                array_map(
+            // With qoption set the answers are regular expressions, not responses, so no correct
+            // response is sent. Otherwise each correct answer is an alternative, except answers
+            // with a *, which core matches as a wildcard: they are patterns, not responses.
+            $correctresponses = !empty($page->qoption) ? null : array_values(
+                array_filter(
+                    array_map(
+                        function ($answer) {
+                            return utils\get_string_html_removed($answer->answer);
+                        },
+                        $correctanswers
+                    ),
                     function ($answer) {
-                        return utils\get_string_html_removed($answer->response);
-                    },
-                    $correctanswers
+                        return strpos($answer, '*') === false;
+                    }
                 )
             );
             $activity['definition'] = utils\get_activity\definition\cmi\fill_in(
@@ -67,7 +75,7 @@ function lesson_question_page(array $config, \stdClass $course, \stdClass $lesso
                 $page->title,
                 utils\get_string_html_removed($page->contents),
                 $courselang,
-                $correctresponses
+                $correctresponses ?: null
             );
             break;
         case 10: // LESSON_PAGE_ESSAY.
@@ -80,62 +88,59 @@ function lesson_question_page(array $config, \stdClass $course, \stdClass $lesso
             break;
         case 2: // LESSON_PAGE_TRUEFALSE.
         case 3: // LESSON_PAGE_MULTICHOICE.
-            $choices = array_values(
-                array_map(
-                    function ($answer) {
-                        return utils\get_string_html_removed($answer->response);
-                    },
-                    $answers
-                )
-            );
-            $correctchoices = array_values(
-                array_map(
-                    function ($answer) {
-                        return utils\get_string_html_removed($answer->response);
-                    },
-                    $correctanswers
-                )
-            );
+            $correctchoices = array_keys($correctanswers);
+            // A multiple-answer page (multichoice with qoption set) needs all the correct answers
+            // together; otherwise each correct answer is right on its own.
+            $multianswer = $page->qtype == 3 && !empty($page->qoption);
             $activity['definition'] = utils\get_activity\definition\cmi\choice(
                 $config,
                 $page->title,
                 utils\get_string_html_removed($page->contents),
-                $choices,
+                utils\get_lesson_choices($answers),
                 $courselang,
-                $correctchoices
+                $multianswer ? [$correctchoices] : array_map(function ($choice) {
+                    return [$choice];
+                }, $correctchoices)
             );
             break;
         case 5: // LESSON_PAGE_MATCHING.
-            $source = [];
-            $target = [];
+            // A pair is an answer and its matching response. The page's correct and wrong answer
+            // feedback is also stored as answers, with no response, so it is left out.
+            $pairs = [];
             foreach ($answers as $a) {
-                if (!empty($a->answer)) {
-                    $source[] = utils\get_string_html_removed($a->answer);
-                    $target[] = utils\get_string_html_removed($a->response);
+                $answertext = utils\get_string_html_removed($a->answer);
+                $responsetext = utils\get_string_html_removed($a->response);
+                if ($answertext !== '' && $responsetext !== '') {
+                    $pairs[] = [$answertext, $responsetext];
                 }
             }
             $activity['definition'] = utils\get_activity\definition\cmi\matching(
                 $config,
                 $page->title,
                 utils\get_string_html_removed($page->contents),
-                $source,
-                $target,
+                array_column($pairs, 0),
+                array_column($pairs, 1),
+                $pairs,
                 $courselang
             );
             break;
         case 8: // LESSON_PAGE_NUMERICAL.
-            // XAPI Numerical can only have one discrete correct response, or a
-            // range but lessons do not support ranges, so taking first correct
-            // answer to cover most cases.
-            $cchoice = reset($correctanswers);
+            // Each correct answer is an alternative correct response. A lesson answer is a
+            // number or a "min:max" range.
+            $patterns = array_values(array_map(function ($answer) {
+                $correct = trim(utils\get_string_html_removed($answer->answer));
+                if (strpos($correct, ':') !== false) {
+                    [$min, $max] = array_map('trim', explode(':', $correct, 2));
+                    return utils\get_activity\definition\cmi\numeric_pattern($min, $max);
+                }
+                return utils\get_activity\definition\cmi\numeric_pattern(null, null, $correct);
+            }, $correctanswers));
             $activity['definition'] = utils\get_activity\definition\cmi\numeric(
                 $config,
                 $page->title,
                 utils\get_string_html_removed($page->contents),
-                null,
-                null,
                 $courselang,
-                utils\get_string_html_removed($cchoice->response)
+                $patterns
             );
             break;
     }

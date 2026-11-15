@@ -45,16 +45,16 @@ function scoreraw_submitted(array $config, \stdClass $event) {
     $unserializedcmi = utils\decode_other($event->other);
     $scormscoestracks = utils\get_scorm_tracks(
         $config,
-        $user->id,
-        $event->objectid,
-        $event->contextinstanceid,
-        $unserializedcmi['attemptid']
+        $unserializedcmi['attemptid'],
+        $unserializedcmi['cmielement'],
+        $unserializedcmi['cmivalue']
     );
     $rawscore = floatval($unserializedcmi['cmivalue']);
 
     return [[
         'actor' => utils\get_user($config, $user),
-        'verb' => utils\get_scorm_verb($scormscoestracks, $lang),
+        // A score saved while the status reports no progress is still a score.
+        'verb' => utils\get_scorm_verb($scormscoestracks, $lang) ?? utils\get_verb('scored', $config, $lang),
         'object' => utils\get_activity\scorm_content_object(
             $config,
             $course,

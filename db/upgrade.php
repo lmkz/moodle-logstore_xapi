@@ -31,7 +31,7 @@
   * @param string $tablename The name of the table.
   * @return void
   */
-function create_xapi_log_table($dbman, $tablename) {
+function logstore_xapi_create_xapi_log_table($dbman, $tablename) {
     // Define table to be created.
     $table = new xmldb_table($tablename);
 
@@ -86,7 +86,7 @@ function create_xapi_log_table($dbman, $tablename) {
   * @param string $tablename The name of the table.
   * @return void
   */
-function create_xapi_sent_log_table($dbman, $tablename) {
+function logstore_xapi_create_xapi_sent_log_table($dbman, $tablename) {
     // Define table to be created.
     $table = new xmldb_table($tablename);
 
@@ -117,7 +117,7 @@ function create_xapi_sent_log_table($dbman, $tablename) {
   * @param string $tablename The name of the table.
   * @return void
   */
-function add_logstorestandardlogid_type_to_table($dbman, $tablename) {
+function logstore_xapi_add_logstorestandardlogid_type_to_table($dbman, $tablename) {
     // Select table.
     $table = new xmldb_table($tablename);
 
@@ -150,9 +150,9 @@ function add_logstorestandardlogid_type_to_table($dbman, $tablename) {
   * @param object $dbman     Database manipulation object.
   * @return void
   */
-function create_logstoreid_and_type_columns($dbman) {
-    add_logstorestandardlogid_type_to_table($dbman, 'logstore_xapi_log');
-    add_logstorestandardlogid_type_to_table($dbman, 'logstore_xapi_failed_log');
+function logstore_xapi_create_logstoreid_and_type_columns($dbman) {
+    logstore_xapi_add_logstorestandardlogid_type_to_table($dbman, 'logstore_xapi_log');
+    logstore_xapi_add_logstorestandardlogid_type_to_table($dbman, 'logstore_xapi_failed_log');
 }
 
  /**
@@ -162,7 +162,7 @@ function create_logstoreid_and_type_columns($dbman) {
   * @param string $tablename The name of the table.
   * @return void
   */
-function create_xapi_notification_table($dbman, $tablename) {
+function logstore_xapi_create_xapi_notification_table($dbman, $tablename) {
     // Define table to be created.
     $table = new xmldb_table($tablename);
 
@@ -248,12 +248,12 @@ function xmldb_logstore_xapi_upgrade($oldversion) {
     $dbman = $DB->get_manager();
 
     if ($oldversion < 2015081001) {
-        create_xapi_log_table($dbman, 'logstore_xapi_log');
+        logstore_xapi_create_xapi_log_table($dbman, 'logstore_xapi_log');
         upgrade_plugin_savepoint(true, 2015081001, 'logstore', 'xapi');
     }
 
     if ($oldversion < 2018082100) {
-        create_xapi_log_table($dbman, 'logstore_xapi_failed_log');
+        logstore_xapi_create_xapi_log_table($dbman, 'logstore_xapi_failed_log');
         upgrade_plugin_savepoint(true, 2018082100, 'logstore', 'xapi');
     }
 
@@ -280,29 +280,77 @@ function xmldb_logstore_xapi_upgrade($oldversion) {
     }
 
     if ($oldversion < 2020041506) {
-        create_xapi_notification_table($dbman, 'logstore_xapi_notif_sent_log');
+        logstore_xapi_create_xapi_notification_table($dbman, 'logstore_xapi_notif_sent_log');
         upgrade_plugin_savepoint(true, 2020041506, 'logstore', 'xapi');
     }
 
     if ($oldversion < 2020050100) {
-        create_logstoreid_and_type_columns($dbman);
+        logstore_xapi_create_logstoreid_and_type_columns($dbman);
         upgrade_plugin_savepoint(true, 2020050100, 'logstore', 'xapi');
     }
 
     if ($oldversion < 2020050600) {
-        create_xapi_sent_log_table($dbman, "logstore_xapi_sent_log");
+        logstore_xapi_create_xapi_sent_log_table($dbman, "logstore_xapi_sent_log");
 
         // The xAPI savepoint reached.
         upgrade_plugin_savepoint(true, 2020050600, 'logstore', 'xapi');
     }
 
-    if ($oldversion < 2026072002) {
-        logstore_xapi_create_client_table($dbman, 'logstore_xapi_client_log');
-        logstore_xapi_create_client_table($dbman, 'logstore_xapi_client_sent', true);
-        upgrade_plugin_savepoint(true, 2026072002, 'logstore', 'xapi');
+    if ($oldversion < 2026102301) {
+        // Only MAX(failedlogid) is ever read, so the recipients' email addresses are not kept.
+        $table = new xmldb_table('logstore_xapi_notif_sent_log');
+        $index = new xmldb_index('email', XMLDB_INDEX_NOTUNIQUE, ['email']);
+        if ($dbman->index_exists($table, $index)) {
+            $dbman->drop_index($table, $index);
+        }
+        $field = new xmldb_field('email');
+        if ($dbman->field_exists($table, $field)) {
+            $dbman->drop_field($table, $field);
+        }
+        upgrade_plugin_savepoint(true, 2026102301, 'logstore', 'xapi');
     }
 
-    if ($oldversion < 2026072003) {
+    if ($oldversion < 2026102601) {
+        // The error report filters and groups failed events by a hash of the response, as the
+        // response is a TEXT column (slow to compare and group, and not comparable at all on
+        // some databases), and indexes errortype, which it filters on.
+        $table = new xmldb_table('logstore_xapi_failed_log');
+        $field = new xmldb_field('responsehash', XMLDB_TYPE_CHAR, '40', null, null, null, null, 'response');
+        if (!$dbman->field_exists($table, $field)) {
+            $dbman->add_field($table, $field);
+        }
+        foreach (['errortype', 'responsehash'] as $column) {
+            $index = new xmldb_index($column, XMLDB_INDEX_NOTUNIQUE, [$column]);
+            if (!$dbman->index_exists($table, $index)) {
+                $dbman->add_index($table, $index);
+            }
+        }
+
+        // Hashing existing rows is one update per row, which could hold up the upgrade of a site
+        // with a large failed log, so an ad-hoc task does it in batches.
+        \core\task\manager::queue_adhoc_task(new \logstore_xapi\task\hash_failed_responses(), true);
+
+        upgrade_plugin_savepoint(true, 2026102601, 'logstore', 'xapi');
+    }
+
+    if ($oldversion < 2026102900) {
+        // The runs in which the LRS failed on a queued event with a server error, so that a batch
+        // it keeps failing on can be split to find the events at fault.
+        $table = new xmldb_table('logstore_xapi_log');
+        $field = new xmldb_field('attempts', XMLDB_TYPE_INTEGER, '10', null, XMLDB_NOTNULL, null, '0', 'type');
+        if (!$dbman->field_exists($table, $field)) {
+            $dbman->add_field($table, $field);
+        }
+        upgrade_plugin_savepoint(true, 2026102900, 'logstore', 'xapi');
+    }
+
+    if ($oldversion < 2026102901) {
+        logstore_xapi_create_client_table($dbman, 'logstore_xapi_client_log');
+        logstore_xapi_create_client_table($dbman, 'logstore_xapi_client_sent', true);
+        upgrade_plugin_savepoint(true, 2026102901, 'logstore', 'xapi');
+    }
+
+    if ($oldversion < 2026102902) {
         // Backfill defaults for the client-side verb filters. New admin
         // settings do not get their defaults written until an upgrade runs,
         // so without this existing sites see every checkbox unticked
@@ -316,7 +364,7 @@ function xmldb_logstore_xapi_upgrade($oldversion) {
         if (get_config('logstore_xapi', 'clientverbs_allow_unknown') === false) {
             set_config('clientverbs_allow_unknown', 1, 'logstore_xapi');
         }
-        upgrade_plugin_savepoint(true, 2026072003, 'logstore', 'xapi');
+        upgrade_plugin_savepoint(true, 2026102902, 'logstore', 'xapi');
     }
 
     return true;

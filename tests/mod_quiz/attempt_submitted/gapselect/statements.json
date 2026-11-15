@@ -78,7 +78,8 @@
           "https://github.com/xAPI-vle/moodle-logstore_xapi": "0.0.0-development"
         }
       },
-      "language": "en"
+      "language": "en",
+      "registration": "89fdb5f6-c98d-54d1-8a37-bb602c90a9ef"
     },
     "result": {
       "completion": true,
@@ -87,7 +88,7 @@
         "max": 100,
         "min": 0,
         "raw": 50,
-        "scaled": 0.0
+        "scaled": 0.5
       },
       "success": true
     }
@@ -112,11 +113,60 @@
         "description": {
           "en": "Example [[1]] missing [[2]] words [[3]]"
         },
-        "interactionType": "sequencing",
+        "interactionType": "matching",
         "name": {
           "en": "test_name"
         },
-        "type": "http://adlnet.gov/expapi/activities/cmi.interaction"
+        "type": "http://adlnet.gov/expapi/activities/cmi.interaction",
+        "correctResponsesPattern": [
+          "gap-1[.]spicy[,]gap-2[.]mango[,]gap-3[.]milkshake"
+        ],
+        "source": [
+          {
+            "id": "gap-1",
+            "description": {
+              "en": "Gap 1"
+            }
+          },
+          {
+            "id": "gap-2",
+            "description": {
+              "en": "Gap 2"
+            }
+          },
+          {
+            "id": "gap-3",
+            "description": {
+              "en": "Gap 3"
+            }
+          }
+        ],
+        "target": [
+          {
+            "id": "spicy",
+            "description": {
+              "en": "spicy"
+            }
+          },
+          {
+            "id": "mango",
+            "description": {
+              "en": "mango"
+            }
+          },
+          {
+            "id": "milkshake",
+            "description": {
+              "en": "milkshake"
+            }
+          },
+          {
+            "id": "chocolate",
+            "description": {
+              "en": "chocolate"
+            }
+          }
+        ]
       },
       "objectType": "Activity"
     },
@@ -185,18 +235,19 @@
           "https://github.com/xAPI-vle/moodle-logstore_xapi": "0.0.0-development"
         }
       },
-      "language": "en"
+      "language": "en",
+      "registration": "89fdb5f6-c98d-54d1-8a37-bb602c90a9ef"
     },
     "result": {
       "completion": true,
       "extensions": {
-        "http://learninglocker.net/xapi/cmi/sequencing/response": [
-          "spicy",
-          "mango",
-          "milkshake"
-        ]
+        "http://learninglocker.net/xapi/cmi/matching/response": {
+          "gap-1": "spicy",
+          "gap-2": "mango",
+          "gap-3": "milkshake"
+        }
       },
-      "response": "spicy[,]mango[,]milkshake",
+      "response": "gap-1[.]spicy[,]gap-2[.]mango[,]gap-3[.]milkshake",
       "success": true
     }
   }

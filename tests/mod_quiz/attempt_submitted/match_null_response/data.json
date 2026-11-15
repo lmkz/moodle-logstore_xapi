@@ -13,7 +13,9 @@
       "grademin": 0,
       "gradepass": 50,
       "iteminstance": 1,
-      "itemmodule": "quiz"
+      "itemmodule": "quiz",
+      "itemtype": "mod",
+      "itemnumber": 0
     }
   ],
   "modules": [
@@ -50,6 +52,46 @@
       "questiontext": "test_question"
     }
   ],
+  "question_attempt_step_data": [
+    {
+      "id": 1,
+      "attemptstepid": 1,
+      "name": "_stemorder",
+      "value": "1,2,3"
+    },
+    {
+      "id": 2,
+      "attemptstepid": 1,
+      "name": "_choiceorder",
+      "value": "3,1,2"
+    },
+    {
+      "id": 3,
+      "attemptstepid": 3,
+      "name": "-finish",
+      "value": "1"
+    }
+  ],
+  "question_attempt_steps": [
+    {
+      "id": 1,
+      "questionattemptid": 1,
+      "sequencenumber": 0,
+      "state": "todo",
+      "fraction": null,
+      "userid": 1,
+      "timecreated": 1433946000
+    },
+    {
+      "id": 3,
+      "questionattemptid": 1,
+      "sequencenumber": 1,
+      "state": "gaveup",
+      "fraction": null,
+      "userid": 1,
+      "timecreated": 1433946200
+    }
+  ],
   "question_attempts": [
     {
       "id": 1,
@@ -67,7 +109,9 @@
   "quiz": [
     {
       "id": 1,
-      "name": "test_quiz_name"
+      "name": "test_quiz_name",
+      "grade": 100,
+      "sumgrades": 100
     }
   ],
   "quiz_attempts": [
@@ -75,6 +119,7 @@
       "id": 1,
       "uniqueid": 1,
       "quiz": 1,
+      "attempt": 1,
       "state": "finished",
       "sumgrades": 50,
       "timefinish": 1,

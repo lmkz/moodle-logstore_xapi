@@ -106,6 +106,19 @@ class provider implements
             'privacy:metadata:' . self::CLIENT_SENT_TABLE
         );
 
+        // Sending events to the configured LRS is the plugin's purpose.
+        $collection->add_external_location_link(
+            'lrs',
+            [
+                'userid' => 'privacy:metadata:lrs:userid',
+                'username' => 'privacy:metadata:lrs:username',
+                'fullname' => 'privacy:metadata:lrs:fullname',
+                'email' => 'privacy:metadata:lrs:email',
+                'eventdata' => 'privacy:metadata:lrs:eventdata',
+            ],
+            'privacy:metadata:lrs'
+        );
+
         return $collection;
     }
 

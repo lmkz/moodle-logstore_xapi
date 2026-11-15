@@ -50,7 +50,6 @@ function numerical(
     $course = $repo->read_record_by_id('course', $event->courseid);
     $feedback = $repo->read_record_by_id('feedback', $feedbackitem->feedback);
     $lang = utils\get_course_lang($course);
-    [$min, $max] = explode('|', $feedbackitem->presentation);
 
     return [[
         'actor' => $actor,
@@ -63,21 +62,24 @@ function numerical(
         'object' => [
             ...utils\get_activity\base(),
             'id' => $config['app_url'] . '/mod/feedback/edit_item.php?id=' . $feedbackitem->id,
+            // The item's range only limits what can be entered. Feedback is not graded, so there
+            // is no correct answer and no correctResponsesPattern is sent.
             'definition' => utils\get_activity\definition\cmi\numeric(
                 $config,
                 $feedbackitem->name,
                 null,
-                $min,
-                $max,
                 $lang
             ),
         ],
         'result' => [
             'response' => $feedbackvalue->value,
             'completion' => $feedbackvalue->value !== '',
-            'extensions' => [
-                'http://learninglocker.net/xapi/cmi/numeric/response' => floatval($feedbackvalue->value),
-            ],
+            // An item left empty has no number to send.
+            ...($feedbackvalue->value !== '' ? [
+                'extensions' => [
+                    'http://learninglocker.net/xapi/cmi/numeric/response' => floatval($feedbackvalue->value),
+                ],
+            ] : []),
         ],
         'context' => [
             ...utils\get_context_base($config, $event, $lang, $course),

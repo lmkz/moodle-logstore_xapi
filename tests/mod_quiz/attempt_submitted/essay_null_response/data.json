@@ -13,7 +13,9 @@
       "grademin": 0,
       "gradepass": 50,
       "iteminstance": 1,
-      "itemmodule": "quiz"
+      "itemmodule": "quiz",
+      "itemtype": "mod",
+      "itemnumber": 0
     }
   ],
   "modules": [
@@ -28,6 +30,34 @@
       "name": "test_name",
       "qtype": "essay",
       "questiontext": "test_question"
+    }
+  ],
+  "question_attempt_step_data": [
+    {
+      "id": 1,
+      "attemptstepid": 2,
+      "name": "-finish",
+      "value": "1"
+    }
+  ],
+  "question_attempt_steps": [
+    {
+      "id": 1,
+      "questionattemptid": 1,
+      "sequencenumber": 0,
+      "state": "todo",
+      "fraction": null,
+      "userid": 1,
+      "timecreated": 1433946000
+    },
+    {
+      "id": 2,
+      "questionattemptid": 1,
+      "sequencenumber": 1,
+      "state": "gaveup",
+      "fraction": null,
+      "userid": 1,
+      "timecreated": 1433946100
     }
   ],
   "question_attempts": [
@@ -46,7 +76,9 @@
   "quiz": [
     {
       "id": 1,
-      "name": "test_quiz_name"
+      "name": "test_quiz_name",
+      "grade": 100,
+      "sumgrades": 100
     }
   ],
   "quiz_attempts": [
@@ -54,6 +86,7 @@
       "id": 1,
       "uniqueid": 1,
       "quiz": 1,
+      "attempt": 1,
       "state": "finished",
       "sumgrades": 50,
       "timefinish": 1,

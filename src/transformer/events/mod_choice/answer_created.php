@@ -56,7 +56,13 @@ function answer_created(array $config, \stdClass $event) {
             $event->contextinstanceid
         ),
         'result' => [
-            'response' => $option->text,
+            // The id of the chosen option, matching the definition's choice ids as xAPI requires.
+            'response' => utils\get_activity\definition\cmi\get_choice_ids(
+                utils\get_activity\definition\choice\get_choice_options($config, $option->choiceid)
+            )[$option->id],
+            'extensions' => [
+                'http://learninglocker.net/xapi/cmi/choice/response' => $option->text,
+            ],
         ],
         'context' => [
             ...utils\get_context_base($config, $event, $lang, $course),

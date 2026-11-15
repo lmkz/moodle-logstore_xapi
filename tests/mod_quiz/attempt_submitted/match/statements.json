@@ -78,7 +78,8 @@
           "https://github.com/xAPI-vle/moodle-logstore_xapi": "0.0.0-development"
         }
       },
-      "language": "en"
+      "language": "en",
+      "registration": "89fdb5f6-c98d-54d1-8a37-bb602c90a9ef"
     },
     "result": {
       "completion": true,
@@ -87,7 +88,7 @@
         "max": 100,
         "min": 0,
         "raw": 50,
-        "scaled": 0.0
+        "scaled": 0.5
       },
       "success": true
     }
@@ -141,6 +142,12 @@
         ],
         "target": [
           {
+            "id": "white",
+            "description": {
+              "en": "White"
+            }
+          },
+          {
             "id": "green",
             "description": {
               "en": "Green"
@@ -150,12 +157,6 @@
             "id": "orange",
             "description": {
               "en": "Orange"
-            }
-          },
-          {
-            "id": "white",
-            "description": {
-              "en": "White"
             }
           }
         ],
@@ -228,15 +229,16 @@
           "https://github.com/xAPI-vle/moodle-logstore_xapi": "0.0.0-development"
         }
       },
-      "language": "en"
+      "language": "en",
+      "registration": "89fdb5f6-c98d-54d1-8a37-bb602c90a9ef"
     },
     "result": {
       "completion": true,
       "extensions": {
         "http://learninglocker.net/xapi/cmi/matching/response": {
-          "Black": "White",
-          "Blue": "Orange",
-          "Red": "Green"
+          "black": "White",
+          "blue": "Orange",
+          "red": "Green"
         }
       },
       "response": "red[.]green[,]blue[.]orange[,]black[.]white",

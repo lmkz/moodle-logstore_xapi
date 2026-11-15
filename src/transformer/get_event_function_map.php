@@ -75,7 +75,7 @@ function get_event_function_map() {
         '\core\event\user_loggedout' => 'core\user_loggedout',
         '\core\event\course_module_created' => 'core\course_module_created',
         '\core\event\course_module_completion_updated' => 'core\course_module_completion_updated',
-        '\core_h5p\event\h5p_viewed' => 'all\course_module_viewed',
+        '\core_h5p\event\h5p_viewed' => 'core_h5p\h5p_viewed',
         '\core\event\search_results_viewed' => 'core\search_results_viewed',
         '\core\event\questions_imported' => 'core\questions_imported',
         '\core\event\question_created' => 'core\question_created',
@@ -86,9 +86,8 @@ function get_event_function_map() {
         '\mod_assign\event\submission_unlocked' => 'mod_assign\submission_locked',
         '\mod_assign\event\submission_viewed' => 'mod_assign\submission_viewed',
         '\mod_assign\event\course_module_viewed' => 'all\course_module_viewed',
-        '\mod_bigbluebuttonbn\event\activity_viewed' => 'mod_bigbluebuttonbn\activity_viewed',
+        '\mod_bigbluebuttonbn\event\course_module_viewed' => 'all\course_module_viewed',
         '\mod_bigbluebuttonbn\event\activity_management_viewed' => 'mod_bigbluebuttonbn\activity_management_viewed',
-        '\mod_bigbluebuttonbn\event\live_session_event' => 'mod_bigbluebuttonbn\live_session',
         '\mod_bigbluebuttonbn\event\meeting_created' => 'mod_bigbluebuttonbn\meeting_created',
         '\mod_bigbluebuttonbn\event\meeting_ended' => 'mod_bigbluebuttonbn\meeting_ended',
         '\mod_bigbluebuttonbn\event\meeting_joined' => 'mod_bigbluebuttonbn\meeting_joined',
@@ -126,6 +125,8 @@ function get_event_function_map() {
         '\mod_forum\event\discussion_subscription_created' => 'mod_forum\discussion_subscription_created',
         '\mod_forum\event\discussion_subscription_deleted' => 'mod_forum\discussion_subscription_deleted',
         '\mod_forum\event\user_report_viewed' => 'mod_forum\user_report_viewed',
+        '\mod_game\event\course_module_viewed' => 'all\course_module_viewed',
+        '\mod_game\event\game_played' => 'mod_game\game_played',
         '\mod_glossary\event\course_module_viewed' => 'all\course_module_viewed',
         '\mod_glossary\event\entry_viewed' => 'mod_glossary\entry_viewed',
         '\mod_glossary\event\comment_created' => 'mod_glossary\comment_created',
@@ -143,7 +144,7 @@ function get_event_function_map() {
         '\mod_lti\event\course_module_viewed' => 'all\course_module_viewed',
         '\mod_page\event\course_module_viewed' => 'all\course_module_viewed',
         '\mod_quiz\event\course_module_viewed' => 'all\course_module_viewed',
-        '\mod_quiz\event\attempt_abandoned' => 'mod_quiz\attempt_submitted\handler',
+        '\mod_quiz\event\attempt_abandoned' => 'mod_quiz\attempt_abandoned',
         '\mod_quiz\event\attempt_becameoverdue' => 'mod_quiz\attempt_becameoverdue',
         '\mod_quiz\event\attempt_started' => 'mod_quiz\attempt_started',
         '\mod_quiz\event\question_manually_graded' => 'mod_quiz\question_manually_graded',
@@ -170,18 +171,15 @@ function get_event_function_map() {
         '\mod_wiki\event\comments_viewed' => 'mod_wiki\comments_viewed',
         '\mod_wiki\event\page_viewed' => 'mod_wiki\page_viewed',
         '\mod_workshop\event\course_module_viewed' => 'all\course_module_viewed',
-        '\totara_program\event\program_assigned' => 'totara_program\program_assigned',
         '\tool_certificate\event\certificate_issued' => 'tool_certificate\certificate_issued',
         '\tool_certificate\event\certificate_verified' => 'tool_certificate\certificate_verified',
         '\tool_certificate\event\certificate_revoked' => 'tool_certificate\certificate_revoked',
         '\tool_usertours\event\tour_ended' => 'tool_usertours\tour_ended',
     ];
 
-    $environmentevents = class_exists("report_eventlist_list_generator") ?
-        array_keys(\report_eventlist_list_generator::get_all_events_list(false)) : array_keys($availableevents);
-
-    $map = array_filter($availableevents, function ($k) use ($environmentevents) {
-        return in_array($k, $environmentevents);
+    // Keep only the events whose class exists on this site. Checking each mapped class is much
+    // cheaper than listing every event of every installed component, which this used to do.
+    return array_filter($availableevents, function ($eventname) {
+        return class_exists($eventname);
     }, ARRAY_FILTER_USE_KEY);
-    return $map;
 }

@@ -43,6 +43,15 @@ class store extends php_obj implements log_writer {
     use helper_writer;
 
     /**
+     * @var callable|null A Guzzle handler that stands in for the LRS, in unit tests only, so that
+     *     the scheduled tasks can be tested against any LRS response. See \curl::mock_response().
+     */
+    public static $mocklrs = null;
+
+    /** @var bool[] The logstore_standard_log ids given to events so far, as keys. */
+    private $usedlogids = [];
+
+    /**
      * Constructs a new store.
      * @param log_manager $manager
      */
@@ -58,8 +67,9 @@ class store extends php_obj implements log_writer {
      */
     protected function is_event_ignored(event_base $event) {
         $allowguestlogging = $this->get_config('logguests', 1);
-        if ((!CLI_SCRIPT || PHPUNIT_TEST) && !$allowguestlogging && isguestuser()) {
-            // Always log inside CLI scripts because we do not login there.
+        if ((!CLI_SCRIPT || PHPUNIT_TEST) && !$allowguestlogging && (!isloggedin() || isguestuser())) {
+            // Always log inside CLI scripts because we do not login there. As in logstore_standard,
+            // a user who isn't logged in counts as a guest.
             return true;
         }
 
@@ -69,85 +79,43 @@ class store extends php_obj implements log_writer {
     }
 
     /**
-     * Get the eventid from logstore_standard_log.
-     * Return the persistent logstore_standard_log id from the database.
-     * Return value 0 means not found.
+     * Find the logstore_standard_log row an event was logged as.
      *
-     * @param event_base $event
-     * @return int
+     * The event is matched on every column the two logs share, except the TEXT column "other",
+     * which cannot be compared in SQL on every database. These include the columns of the
+     * standard log's user-module index, so the lookup can use it. Identical events in the same
+     * second match several rows: the latest one that hasn't been given to another event, in this
+     * run (see get_persistent_eventids()) or an earlier one (the sent log), is returned.
      *
+     * @param \stdClass $event The event, as stored in logstore_xapi_log.
+     * @return int The row id, or 0 when no free row matches.
      */
     protected function get_event_id($event) {
         global $DB;
 
-        $sqlparams = [];
-        $where = ['1 = 1'];
-
-        if (!empty($event->eventname)) {
-            $sqlparams['eventname'] = $event->eventname;
-            $where[] = 'eventname = :eventname';
+        $fields = ['eventname', 'component', 'action', 'target', 'objecttable', 'objectid', 'crud', 'edulevel',
+            'contextid', 'contextlevel', 'contextinstanceid', 'userid', 'courseid', 'relateduserid', 'anonymous',
+            'timecreated'];
+        $where = [];
+        $params = [];
+        foreach ($fields as $field) {
+            if (isset($event->$field)) {
+                $where[] = "l.$field = :$field";
+                $params[$field] = $event->$field;
+            } else {
+                $where[] = "l.$field IS NULL";
+            }
         }
+        // A row already sent belongs to another event: one sent in an earlier run.
+        $where[] = 'NOT EXISTS (SELECT 1 FROM {logstore_xapi_sent_log} s WHERE s.logstorestandardlogid = l.id)';
 
-        if (!empty($event->component)) {
-            $sqlparams['component'] = $event->component;
-            $where[] = 'component = :component';
+        $sql = 'SELECT l.id FROM {logstore_standard_log} l WHERE ' . implode(' AND ', $where) . ' ORDER BY l.id DESC';
+        foreach ($DB->get_fieldset_sql($sql, $params) as $id) {
+            if (!isset($this->usedlogids[$id])) {
+                return (int) $id;
+            }
         }
-
-        if (!empty($event->action)) {
-            $sqlparams['action'] = $event->action;
-            $where[] = 'action = :action';
-        }
-
-        if (!empty($event->target)) {
-            $sqlparams['target'] = $event->target;
-            $where[] = 'target = :target';
-        }
-
-        if (!empty($event->objecttable)) {
-            $sqlparams['objecttable'] = $event->objecttable;
-            $where[] = 'objecttable = :objecttable';
-        } else {
-            $where[] = 'objecttable IS NULL';
-        }
-
-        if (!empty($event->objectid)) {
-            $sqlparams['objectid'] = $event->objectid;
-            $where[] = 'objectid = :objectid';
-        } else {
-            $where[] = 'objectid IS NULL';
-        }
-
-        if (isset($event->timecreated) && $event->timecreated !== null) {
-            $sqlparams['timecreated'] = $event->timecreated;
-            $where[] = 'timecreated = :timecreated';
-        }
-
-        if (isset($event->userid) && $event->userid !== null) {
-            $sqlparams['userid'] = $event->userid;
-            $where[] = 'userid = :userid';
-        }
-
-        if (isset($event->anonymous) && $event->anonymous !== null) {
-            $sqlparams['anonymous'] = $event->anonymous;
-            $where[] = 'anonymous = :anonymous';
-        }
-
-        // Perhaps we need more rule here.
-        if (empty($sqlparams)) {
-            return 0;
-        }
-
-        $sqlwhere = implode(' AND ', $where);
-
-        $sql = "SELECT MAX(id) AS id
-                  FROM {logstore_standard_log}
-                 WHERE " . $sqlwhere;
-
-        $row = $DB->get_record_sql($sql, $sqlparams);
-        if (empty($row) || empty($row->id)) {
-            return 0;
-        }
-        return $row->id;
+        return 0;
     }
 
     /**
@@ -161,11 +129,25 @@ class store extends php_obj implements log_writer {
 
         // If in background mode, just save them in the database.
         if ($this->get_config('backgroundmode', false)) {
+            // The standard log id is looked up when the event is sent, not here in the user's
+            // request. The standard store buffers its events too, so its row may not exist yet:
+            // it is written after this store's when the standard store comes later in the list
+            // of enabled stores.
             $events = $this->convert_array_to_objects($events);
-            $events = $this->get_persistent_eventids($events);
+            foreach ($events as $event) {
+                $event->type = XAPI_IMPORT_TYPE_LIVE;
+            }
             $DB->insert_records('logstore_xapi_log', $events);
         } else {
-            $this->process_events($events);
+            // Keep events that fail so they can be replayed, as the scheduled tasks do. This
+            // runs during a web request, so no mtrace() output.
+            $loadedevents = $this->process_events($events);
+            logstore_xapi_store_failed_events($loadedevents, false);
+            // Events the LRS can't take now go to the queue, for the emit task to send later.
+            logstore_xapi_record_retry_events($loadedevents);
+            foreach (logstore_xapi_get_retry_events($loadedevents) as $event) {
+                $DB->insert_record('logstore_xapi_log', $event);
+            }
         }
     }
 
@@ -197,8 +179,11 @@ class store extends php_obj implements log_writer {
     }
 
     /**
-     * Take rows from logstore_standard_log for the emit_task or failed_task
-     * and add in the logstorestandardlogid and set the type.
+     * Set the events' type, and look up the logstore_standard_log id of those that have none.
+     *
+     * Events from the historic report and the failed log already have their id, so they keep it.
+     * Identical events in the same second match the same rows, so each event is given a row no
+     * other event has had from this store: across all the batches of a run, not only one batch.
      *
      * @param array $events raw event data
      * @param int $eventtype event type
@@ -206,23 +191,13 @@ class store extends php_obj implements log_writer {
      */
     private function get_persistent_eventids(array $events, $eventtype = XAPI_IMPORT_TYPE_LIVE) {
         foreach ($events as $event) {
-            $event->logstorestandardlogid = $this->get_event_id($event);
             $event->type = $eventtype;
+            if (empty($event->logstorestandardlogid)) {
+                $event->logstorestandardlogid = $this->get_event_id($event);
+            }
+            $this->usedlogids[$event->logstorestandardlogid] = true;
         }
         return $events;
-    }
-
-    /**
-     * Take successful events and save each using logstore_xapi_add_event_to_sent_log.
-     *
-     * @param array $events raw events data
-     * @return void
-     */
-    private function save_sent_events(array $events) {
-        $successfulevents = logstore_xapi_get_successful_events($events);
-        foreach ($successfulevents as $event) {
-            logstore_xapi_add_event_to_sent_log($event);
-        }
     }
 
     /**
@@ -231,17 +206,88 @@ class store extends php_obj implements log_writer {
      *
      * @param array $events raw event data
      * @param int $eventtype event type
+     * @param bool $splitservererrors Whether to split a batch the LRS fails on (a server error) to
+     *     find the events it fails on, for a batch that has failed before.
      * @return array
      */
-    public function process_events(array $events, $eventtype = XAPI_IMPORT_TYPE_LIVE) {
+    public function process_events(array $events, $eventtype = XAPI_IMPORT_TYPE_LIVE, bool $splitservererrors = false) {
         $events = $this->convert_array_to_objects($events);
+        [$events, $skippedevents] = $this->split_skipped_events($events);
         $events = $this->get_persistent_eventids($events, $eventtype);
 
         $config = $this->get_handler_config();
+        $config['loader']['split_server_errors'] = $splitservererrors;
         $loadedevents = \src\handler($config, $events);
-        $this->save_sent_events($loadedevents);
+        logstore_xapi_save_sent_events($loadedevents);
 
-        return $loadedevents;
+        return array_merge($loadedevents, $skippedevents);
+    }
+
+    /**
+     * Separate the events that must not be sent.
+     *
+     * These are events the admin has chosen not to send, and anonymous events. Routes and
+     * logguests are checked when an event is captured (is_event_ignored()), but events also
+     * arrive from the historic report and the failed log, and a route may have been turned off
+     * since an event was queued. Every path goes through process_events(), so the check is
+     * repeated here.
+     *
+     * Core flags an event as anonymous when the user's identity must stay hidden (assignment
+     * blind marking, anonymous feedback). By default those events are sent with the protected
+     * user replaced by an anonymous actor (see utils\anonymise_statements()); with the
+     * anonymousevents setting at "don't send", they are skipped here.
+     *
+     * Skipped events are returned with 'loaded' set to null: the tasks delete them from the
+     * queue, but they are not recorded as sent or as failed.
+     *
+     * @param array $events Event objects.
+     * @return array The events to send, and the skipped events in the loaded-event format.
+     */
+    private function split_skipped_events(array $events) {
+        $enabledevents = array_flip(explode(',', $this->get_config('routes', '')));
+        $allowguestlogging = $this->get_config('logguests', 1);
+        $skipanonymous = $this->get_config('anonymousevents', XAPI_ANONYMOUS_EVENTS_ANONYMISE)
+            === XAPI_ANONYMOUS_EVENTS_SKIP;
+
+        $routedevents = [];
+        $skippedevents = [];
+        foreach ($events as $event) {
+            $isrouted = isset($event->eventname) && isset($enabledevents[$event->eventname]);
+            $isguest = $this->is_guest_event($event);
+            $isskippedanonymous = $skipanonymous && !empty($event->anonymous);
+            if ($isrouted && ($allowguestlogging || !$isguest) && !$isskippedanonymous) {
+                $routedevents[] = $event;
+            } else {
+                $skippedevents[] = [
+                    'event' => $event,
+                    'statements' => [],
+                    'transformed' => false,
+                    'loaded' => null,
+                ];
+            }
+        }
+        return [$routedevents, $skippedevents];
+    }
+
+    /**
+     * Was the event triggered by a guest, or by a user who isn't logged in (user id 0)?
+     *
+     * This is the "Log guest actions" rule of is_event_ignored(), for events that have been
+     * queued. Like it, it leaves out events logged by CLI scripts, which have no logged-in user.
+     *
+     * @param \stdClass $event The event.
+     * @return bool
+     */
+    private function is_guest_event(\stdClass $event): bool {
+        global $CFG;
+
+        if (!isset($event->userid)) {
+            return false;
+        }
+        if ((string) $event->userid === '0') {
+            return ($event->origin ?? '') !== 'cli';
+        }
+        return !empty($CFG->siteguest) && $event->userid == $CFG->siteguest;
     }
 
     /**
@@ -254,11 +300,12 @@ class store extends php_obj implements log_writer {
 
         $plugin = core_plugin_manager::instance()->get_plugin_info('logstore_xapi');
 
+        // Messages can hold LRS response bodies, and debugging() prints them unescaped.
         $logerror = function ($message = '') {
-            debugging($message, DEBUG_NORMAL);
+            debugging(s(\core_text::substr((string) $message, 0, 2000)), DEBUG_NORMAL);
         };
         $loginfo = function ($message = '') {
-            debugging($message, DEBUG_DEVELOPER);
+            debugging(s((string) $message), DEBUG_DEVELOPER);
         };
 
         $handlerconfig = [
@@ -269,12 +316,12 @@ class store extends php_obj implements log_writer {
                 'send_mbox' => $this->get_config('mbox', false),
                 'send_name' => $this->get_config('send_name', true),
                 'send_response_choices' => $this->get_config('sendresponsechoices', false),
+                'send_content' => $this->get_config('sendcontent', true),
                 'send_short_course_id' => $this->get_config('shortcourseid', false),
                 'send_course_and_module_idnumber' => $this->get_config('sendidnumber', false),
                 'send_username' => $this->get_config('send_username', false),
                 'account_homepage' => $this->get_config('account_homepage', $CFG->wwwroot),
                 'context_platform' => $this->get_config('context_platform', 'Moodle'),
-                'session_id' => sesskey(),
                 'plugin_url' => 'https://github.com/xAPI-vle/moodle-logstore_xapi',
                 'plugin_version' => $plugin->release,
                 'repo' => new \src\transformer\repos\MoodleRepository($DB),
@@ -285,6 +332,10 @@ class store extends php_obj implements log_writer {
                 'lrs_endpoint' => $this->get_config('endpoint', ''),
                 'lrs_username' => $this->get_config('username', ''),
                 'lrs_password' => $this->get_config('password', ''),
+                'lrs_auth_method' => $this->get_config('authmethod', 'basic'),
+                'lrs_oauth2_token_endpoint' => $this->get_config('oauth2tokenendpoint', ''),
+                'lrs_oauth2_scope' => $this->get_config('oauth2scope', ''),
+                'lrs_mock_handler' => (defined('PHPUNIT_TEST') && PHPUNIT_TEST) ? self::$mocklrs : null,
                 'lrs_max_batch_size' => $this->get_max_batch_size(),
                 'lrs_resend_failed_batches' => $this->get_config('resendfailedbatches', false),
                 'lrs_ssl_verification' => $this->get_config('sslverification', true),
@@ -292,21 +343,11 @@ class store extends php_obj implements log_writer {
             ],
         ];
 
-        if (isset($CFG->totara_release)) {
-            $source = [
-                'source_url' => 'http://totaralearning.com',
-                'source_name' => 'Totara Learn',
-                'source_version' => $CFG->totara_version,
-            ];
-        } else {
-            $source = [
-                'source_url' => 'http://moodle.org',
-                'source_name' => 'Moodle',
-                'source_version' => $CFG->release,
-            ];
-        }
-
-        $handlerconfig['transformer'] = array_merge($handlerconfig['transformer'], $source);
+        $handlerconfig['transformer'] = array_merge($handlerconfig['transformer'], [
+            'source_url' => 'http://moodle.org',
+            'source_name' => 'Moodle',
+            'source_version' => $CFG->release,
+        ]);
 
         return $handlerconfig;
     }

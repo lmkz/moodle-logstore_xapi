@@ -15,7 +15,7 @@
 // along with Moodle.  If not, see <http://www.gnu.org/licenses/>.
 
 /**
- * Transform for the quiz question (match) answered event.
+ * Transform for the quiz question (match and randomsamatch) answered event.
  *
  * @package   logstore_xapi
  * @copyright Jerret Fowler <jerrett.fowler@gmail.com>
@@ -30,7 +30,7 @@ use src\transformer\utils;
 use src\transformer\utils\get_activity\definition\question;
 
 /**
- * Transformer for quiz question (match) answered event.
+ * Transformer for quiz question (match and randomsamatch) answered event.
  *
  * @param array $config The transformer config settings.
  * @param \stdClass $event The event to be transformed.
@@ -47,38 +47,31 @@ function matching(array $config, \stdClass $event, \stdClass $questionattempt, \
     $coursemodule = $repo->read_record_by_id('course_modules', $event->contextinstanceid);
     $lang = utils\get_course_lang($course);
 
-    $result = [
-        'response' => '',
-        'completion' => false,
-        'success' => false,
-    ];
+    // The response and the stems and choices shown come from the attempt's steps.
+    $matching = utils\quiz_question\get_matching_attempt($config, $questionattempt, $question);
+    $success = utils\quiz_question\get_question_attempt_success($config, $questionattempt, $event);
+    $pairs = [];
+    $extension = [];
+    foreach ($matching['response'] as $stemkey => $choicekey) {
+        $stem = $matching['stems'][$stemkey] ?? '';
+        $choice = $matching['choices'][$choicekey] ?? '';
+        if ($stem === '' || $choice === '') {
+            continue;
+        }
+        $pairs[] = utils\slugify($stem) . '[.]' . utils\slugify($choice);
+        // Keys are the definition's source ids (see #898).
+        $extension[utils\slugify($stem)] = $choice;
+    }
 
-    if (!is_null($questionattempt->responsesummary) && $questionattempt->responsesummary !== '') {
-        $selections = array_reduce(
-            explode('; ', $questionattempt->responsesummary),
-            function ($reduction, $selection) {
-                $split = explode("\n -> ", $selection);
-                $selectionkey = $split[0];
-                $selectionvalue = $split[1];
-                $reduction[$selectionkey] = $selectionvalue;
-                return $reduction;
-            },
-            []
-        );
-
-        $result = [
-            'response' => utils\result\get_matching_response(
-                $config,
-                $questionattempt,
-                $lang
-            ),
+    $result = empty($pairs)
+        ? ['response' => '', 'completion' => false]
+        : [
+            'response' => implode('[,]', $pairs),
             'completion' => true,
-            'success' => $questionattempt->rightanswer === $questionattempt->responsesummary,
             'extensions' => [
-                'http://learninglocker.net/xapi/cmi/matching/response' => $selections,
+                'http://learninglocker.net/xapi/cmi/matching/response' => (object) $extension,
             ],
         ];
-    }
 
     return [[
         'actor' => utils\get_user($config, $user),
@@ -91,9 +84,12 @@ function matching(array $config, \stdClass $event, \stdClass $questionattempt, \
         'object' => [
             ...utils\get_activity\base(),
             'id' => utils\get_quiz_question_id($config, $coursemodule->id, $question->id),
-            'definition' => question\get_match_definition($config, $question, $lang),
+            'definition' => question\get_match_definition($config, $question, $lang, $matching),
         ],
-        'result' => $result,
+        'result' => [
+            ...$result,
+            ...(is_null($success) ? [] : ['success' => $success]),
+        ],
         'context' => [
             ...utils\get_context_base($config, $event, $lang, $course),
             'contextActivities' => [

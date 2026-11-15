@@ -3,10 +3,25 @@
     {
       "id": 1,
       "name": "test_lesson",
-      "intro": "test_lesson_intro"
+      "intro": "test_lesson_intro",
+      "custom": 1
     }
   ],
   "lesson_answers": [
+    {
+      "id": 10,
+      "pageid": 1,
+      "answer": "Well done",
+      "response": null,
+      "score": 1
+    },
+    {
+      "id": 11,
+      "pageid": 1,
+      "answer": "Try again",
+      "response": null,
+      "score": 0
+    },
     {
       "id": 1,
       "pageid": 1,
@@ -24,14 +39,17 @@
   ],
   "lesson_attempts": [
     {
+      "id": 1,
       "lessonid": 1,
       "pageid": 1,
       "userid": 1,
       "correct": 1,
-      "timeseen": "1731972680",
-      "useranswer": "Apple,Banana"
+      "timeseen": "1433946700",
+      "useranswer": "Apple,Banana",
+      "retry": 0
     }
   ],
+  "lesson_grades": [],
   "lesson_pages": [
     {
       "id": 1,
