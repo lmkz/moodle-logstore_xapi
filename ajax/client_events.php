@@ -125,6 +125,12 @@ $statement['actor'] = \logstore_xapi\client\queue_processor::get_actor_for_user(
 // server-verified course id (or strip it) so forged claims reach neither
 // the queue row nor the LRS.
 $courseid = logstore_xapi_resolve_client_statement_course($statement, $USER);
+// Match server-side transformers: the Send content setting controls learner-written
+// response text. Apply the setting before storing the statement so it is not retained
+// in the queue or sent to the LRS when disabled.
+if (!\logstore_xapi\client\queue_processor::is_sending_content()) {
+    \logstore_xapi\client\queue_processor::remove_response_content($statement);
+}
 $statementjson = json_encode($statement, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
 if ($statementjson === false ||
         !logstore_xapi_validate_client_statement($statement, $error, $statementjson)) {

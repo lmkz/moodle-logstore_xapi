@@ -61,6 +61,41 @@ class queue_processor {
     }
 
     /**
+     * Whether learner response text may be included in client statements.
+     *
+     * An unset value preserves the historical default of sending content.
+     *
+     * @return bool
+     */
+    public static function is_sending_content(): bool {
+        $sendcontent = get_config('logstore_xapi', 'sendcontent');
+        return $sendcontent === false || !empty($sendcontent);
+    }
+
+    /**
+     * Remove learner response text from a client statement, including nested SubStatements.
+     *
+     * Scores, success and other result properties are retained.
+     *
+     * @param array $statement xAPI statement, modified in place.
+     * @return bool Whether any response content was removed.
+     */
+    public static function remove_response_content(array &$statement): bool {
+        $changed = false;
+        if (isset($statement['result']) && is_array($statement['result']) &&
+                array_key_exists('response', $statement['result'])) {
+            unset($statement['result']['response']);
+            $changed = true;
+        }
+
+        if (($statement['object']['objectType'] ?? null) === 'SubStatement' &&
+                isset($statement['object']) && is_array($statement['object'])) {
+            $changed = self::remove_response_content($statement['object']) || $changed;
+        }
+        return $changed;
+    }
+
+    /**
      * Build an xAPI actor for an authenticated user, mirroring the plugin's
      * actor identification settings.
      *
@@ -198,6 +233,12 @@ class queue_processor {
                     'response' => $record->response,
                 ];
                 continue;
+            }
+            // The privacy setting can be changed after a statement was queued. Sanitize the
+            // stored payload as well as the outbound statement before any later retry.
+            if (!self::is_sending_content() && self::remove_response_content($statement)) {
+                $record->statement = json_encode($statement, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
+                $DB->set_field('logstore_xapi_client_log', 'statement', $record->statement, ['id' => $record->id]);
             }
             if (!verb_policy::is_enabled($statement['verb']['id'] ?? '')) {
                 // Verb disabled after the statement was queued: drop silently

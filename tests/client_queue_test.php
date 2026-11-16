@@ -122,6 +122,78 @@ final class client_queue_test extends \advanced_testcase {
     }
 
     /**
+     * The Send content setting controls client-side response text and preserves the default.
+     *
+     * @return void
+     */
+    public function test_is_sending_content_uses_configured_setting(): void {
+        $this->resetAfterTest();
+
+        $this->assertTrue(queue_processor::is_sending_content());
+        set_config('sendcontent', 0, 'logstore_xapi');
+        $this->assertFalse(queue_processor::is_sending_content());
+        set_config('sendcontent', 1, 'logstore_xapi');
+        $this->assertTrue(queue_processor::is_sending_content());
+    }
+
+    /**
+     * Disabling Send content removes response text from statements and nested SubStatements.
+     *
+     * @return void
+     */
+    public function test_remove_response_content(): void {
+        $statement = $this->statement();
+        $statement['result'] = [
+            'response' => 'A learner response',
+            'success' => true,
+            'score' => ['raw' => 1],
+        ];
+        $statement['object'] = [
+            'objectType' => 'SubStatement',
+            'actor' => ['account' => ['homePage' => 'https://example.test', 'name' => '1']],
+            'verb' => ['id' => 'http://adlnet.gov/expapi/verbs/answered'],
+            'object' => ['id' => 'https://example.test/question/1'],
+            'result' => ['response' => 'Nested learner response', 'success' => false],
+        ];
+
+        queue_processor::remove_response_content($statement);
+
+        $this->assertArrayNotHasKey('response', $statement['result']);
+        $this->assertTrue($statement['result']['success']);
+        $this->assertSame(['raw' => 1], $statement['result']['score']);
+        $this->assertArrayNotHasKey('response', $statement['object']['result']);
+        $this->assertFalse($statement['object']['result']['success']);
+    }
+
+    /**
+     * Disabling Send content scrubs responses from failed statements already in the queue.
+     *
+     * @return void
+     */
+    public function test_process_scrubs_queued_response_content_when_disabled(): void {
+        global $DB;
+        $this->resetAfterTest();
+
+        set_config('sendcontent', 0, 'logstore_xapi');
+        $user = $this->getDataGenerator()->create_user();
+        $context = \context_user::instance($user->id);
+        $statement = $this->statement();
+        $statement['result'] = ['response' => 'Private learner response', 'success' => true];
+        $statement['id'] = 'client-statement-private-response';
+        $result = logstore_xapi_queue_client_statement($statement, json_encode($statement), $user->id, $context->id);
+        $DB->set_field('logstore_xapi_client_log', 'type', XAPI_IMPORT_TYPE_FAILED, ['id' => $result['id']]);
+        $DB->set_field('logstore_xapi_client_log', 'attempts', XAPI_CLIENT_QUEUE_MAX_ATTEMPTS,
+            ['id' => $result['id']]);
+        $record = $DB->get_record('logstore_xapi_client_log', ['id' => $result['id']], '*', MUST_EXIST);
+
+        $summary = queue_processor::process([$record]);
+
+        $stored = $DB->get_field('logstore_xapi_client_log', 'statement', ['id' => $result['id']]);
+        $this->assertArrayNotHasKey('response', json_decode($stored, true)['result']);
+        $this->assertSame(1, $summary['exhausted']);
+    }
+
+    /**
      * The actor is derived from the authenticated user.
      *
      * @return void
