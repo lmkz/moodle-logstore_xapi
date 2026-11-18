@@ -34,20 +34,16 @@ require_sesskey();
 
 header('Content-Type: application/json');
 
-// Use Moodle's standard submission check. Keep the method distinction for
-// the appropriate HTTP status and message when no data was submitted.
-$submitteddata = data_submitted();
-if ($submitteddata === false) {
-    $ispost = ($_SERVER['REQUEST_METHOD'] ?? '') === 'POST';
-    http_response_code($ispost ? 400 : 405);
+// State-changing endpoint: only POST carries the statement body.
+if (!data_submitted()) {
+    http_response_code(405);
     echo json_encode([
         'success' => false,
         'action' => 'rejected',
         'queued' => false,
         'delivered' => false,
         'duplicate' => false,
-        'message' => $ispost ? get_string('clientpayloadrequired', 'logstore_xapi') :
-            get_string('clientajaxmethod', 'logstore_xapi'),
+        'message' => get_string('clientajaxmethod', 'logstore_xapi'),
     ]);
     die;
 }
